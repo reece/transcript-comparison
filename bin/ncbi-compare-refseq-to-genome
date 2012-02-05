@@ -1,0 +1,46 @@
+#!/usr/bin/env python
+
+import os, pprint, sys
+
+from cogent.db.ncbi import EFetch,ELink,ESearch
+
+sys.path[0:0] = [os.path.join(os.path.dirname(
+    os.path.dirname(__file__)),'lib/python')]
+from locus.ncbi.esearchresult import ESearchResult
+from locus.ncbi.refseq import RefSeq
+from locus.ncbi.elinkresult import ELinkResult
+from locus.ncbi.gene import Gene
+
+eutils_defaults = {
+    'tool': sys.argv[0],
+    'email': 'reecehart@gmail.com',
+    'retmax': 5,
+    'retmode': 'xml'
+    }
+
+es = ESearch(rettype='uilist',**eutils_defaults)
+ef = EFetch(**eutils_defaults)
+el = ELink(**eutils_defaults)
+
+ac = 'NM_006158.3'
+
+esr = ESearchResult( es.read(term='%s[accn]'%(ac)) )
+assert len(esr.uilist()) == 1, "Got more than one uid for %s[accn]"%(ac)
+rs = RefSeq(ef.read(db='nuccore',id=esr.uilist()[0],retmode='xml',rettype='gb'))
+
+elr = ELinkResult(el.read(dbfrom='nuccore',db='gene',
+                          linkname='nuccore_gene',id=esr.uilist()[0]))
+assert len(elr.results()) == 1, pprint.pformat(elr)
+gene_id = elr.results()[0]['ids']
+g = Gene(ef.read(db='gene',id=gene_id))
+
+
+#for ac in sys.argv[1:]:
+#    esr = ESearchResult( es.read(term='%s[accn]'%(ac)) )
+#    rs = RefSeq(ef.read(db='nuccore',id=esr.uilist()[0],retmode='xml',rettype='gb'))
+#    elr = ELinkResult(el.read(dbfrom='nuccore',id=esr.uilist()[0],db='gene'))
+#    g = Gene(ef.read(db='gene',id=elr.results()[0]['ids']))
+#    print( '%-10s %s\n' % (
+#            ac, 
+#            rs.exon_starts_ends_lengths()[2] == g.grch37p5_exon_starts_ends_lengths()[2]
+#            ))

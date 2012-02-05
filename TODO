@@ -1,0 +1,6 @@
+* implement caching in EFetch, ESearch, ELink
+
+* use cogent's esearch and elink results parsers
+I just discovered that cogent has an ESearchResult and ELinkResult (or
+similar name)
+
