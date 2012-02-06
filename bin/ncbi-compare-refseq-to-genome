@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 
-import os, pprint, sys
+import logging, os, pprint, sys
 
 from cogent.db.ncbi import EFetch,ELink,ESearch
 
 sys.path[0:0] = [os.path.join(os.path.dirname(
     os.path.dirname(__file__)),'lib/python')]
+from locus.utils.memoize import memoize
 from locus.ncbi.esearchresult import ESearchResult
 from locus.ncbi.refseq import RefSeq
 from locus.ncbi.elinkresult import ELinkResult
@@ -18,29 +19,41 @@ eutils_defaults = {
     'retmode': 'xml'
     }
 
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
 es = ESearch(rettype='uilist',**eutils_defaults)
 ef = EFetch(**eutils_defaults)
 el = ELink(**eutils_defaults)
 
+
+@memoize
+def esearch_ac(ac):
+    return es.read(term='%s[accn]'%(ac))
+
+@memoize
+def efetch_nuccore_ui(ui):
+    return ef.read(db='nuccore',id=esr.uilist()[0],retmode='xml',rettype='gb')
+
+@memoize
+def elink_nucleotide_ui_to_gene(ui):
+    return el.read(dbfrom='nuccore',db='gene',
+                   linkname='nuccore_gene',id=ui)
+
+@memoize
+def efetch_gene_by_gene_id(gene_id):
+    return ef.read(db='gene',id=gene_id)
+
+
 ac = 'NM_006158.3'
 
-esr = ESearchResult( es.read(term='%s[accn]'%(ac)) )
+esr = ESearchResult( esearch_ac(ac) )
 assert len(esr.uilist()) == 1, "Got more than one uid for %s[accn]"%(ac)
-rs = RefSeq(ef.read(db='nuccore',id=esr.uilist()[0],retmode='xml',rettype='gb'))
+ui = esr.uilist()[0]
+rs = RefSeq( efetch_nuccore_ui(ui) )
 
-elr = ELinkResult(el.read(dbfrom='nuccore',db='gene',
-                          linkname='nuccore_gene',id=esr.uilist()[0]))
+elr = ELinkResult( elink_nucleotide_ui_to_gene(ui) )
 assert len(elr.results()) == 1, pprint.pformat(elr)
 gene_id = elr.results()[0]['ids']
-g = Gene(ef.read(db='gene',id=gene_id))
+g = Gene(efetch_gene_by_gene_id(gene_id))
 
-
-#for ac in sys.argv[1:]:
-#    esr = ESearchResult( es.read(term='%s[accn]'%(ac)) )
-#    rs = RefSeq(ef.read(db='nuccore',id=esr.uilist()[0],retmode='xml',rettype='gb'))
-#    elr = ELinkResult(el.read(dbfrom='nuccore',id=esr.uilist()[0],db='gene'))
-#    g = Gene(ef.read(db='gene',id=elr.results()[0]['ids']))
-#    print( '%-10s %s\n' % (
-#            ac, 
-#            rs.exon_starts_ends_lengths()[2] == g.grch37p5_exon_starts_ends_lengths()[2]
-#            ))

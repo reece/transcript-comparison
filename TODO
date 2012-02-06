@@ -4,3 +4,12 @@
 I just discovered that cogent has an ESearchResult and ELinkResult (or
 similar name)
 
+The following items are updated automatically by make TODO
+
+lib/python/locus/utils/memoize.py:
+============================================================================
+TODO: this is a lame key
+
+lib/python/locus/ncbi/gene.py:
+============================================================================
+TODO: rename hgnc or somesuch

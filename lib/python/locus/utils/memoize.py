@@ -8,7 +8,7 @@
 # http://code.activestate.com/recipes/498110-memoize-decorator-with-o1-length-limited-lru-cache/
 # Expert Python Programming p. 52
 
-import atexit, logging, os, shelve, sys
+import atexit, hashlib, logging, os, pickle, shelve, sys
 
 class memoize(object):
     """Decorator that caches a function's return value each time it is called.
@@ -30,14 +30,17 @@ class memoize(object):
         self.logger.debug('opened cache for %s (%s)' % (self._func.func_name,cache_fn))
         atexit.register( lambda : self.cache.close() )
 
-    def __call__(self, *args):
-        #key = str(frozenset(args))
-        # TODO: this is a lame key
-        # consider pickle.dumps(function,args,kw) 
-        key = str(args)
+    def compute_key(self,args,kw):
+        key = pickle.dumps((self._func.func_name,args,kw))
+        return hashlib.sha1(key).hexdigest()
+
+    def __call__(self, *args, **kw):
+        key = str(args)+str(kw)
+        # If previous key method fails, consider compute_key, like this:
+        # key = self.compute_key(args,kw)
         if not self.cache.has_key(key):
             self.logger.debug('miss: %s(%s)' % (self._func.func_name,key))
-            self.cache[key] = value = self._func(*args)
+            self.cache[key] = value = self._func(*args,**kw)
         else:
             self.logger.debug('hit: %s(%s)' % (self._func.func_name,key))
         return self.cache[key]
@@ -49,3 +52,13 @@ if __name__ == "__main__":
         return (n > 1) and (fib(n - 1) + fib(n - 2)) or 1
     print fib(5)
     print fib(5)
+
+    @memoize
+    def exp(b,p):
+        return b**p;
+    print exp(2,5)
+    print exp(2,5)
+
+    print exp(b=2,p=5)
+    print exp(b=2,p=5)
+    print exp(p=5,b=2)

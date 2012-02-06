@@ -17,16 +17,15 @@ eutils_defaults = {
 class NCBIClient(object):
     def __init__(self):
         self._es = ESearch(rettype='uilist',**eutils_defaults)
-        self.ef = EFetch(**eutils_defaults)
-        self.el = ELink(**eutils_defaults)
+        self._ef = EFetch(**eutils_defaults)
+        self._el = ELink(**eutils_defaults)
 
     def search_by_accession(self,term):
-        return ESearchResult( es.read(term='%s[accn]'%(ac)) )
+        return ESearchResult( _es.read(term='%s[accn]'%(ac)) )
 
     def fetch_refseq_by_id(self,id):
-        return RefSeq(ef.read(db='nuccore',id=id,retmode='xml',rettype='gb'))
+        return RefSeq( _ef.read(db='nuccore',id=id,retmode='xml',rettype='gb') )
 
     def fetch_refseq_by_ac(self,ac):
-        esr = ESearchResult( es.read(term='%s[accn]'%(ac)) )
-        assert len(esr.uilist()) == 1
+        esr = ESearchResult( _es.read(term='%s[accn]'%(ac)) )
         return RefSeq(ef.read(db='nuccore',id=esr.uilist()[0],retmode='xml',rettype='gb'))
