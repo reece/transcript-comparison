@@ -17,8 +17,20 @@ install-reqs: etc/reqs.pip ${VIRTUALENV_DIR}
 	curl ftp://ftp.ncbi.nlm.nih.gov/refseq/H_sapiens/mRNA_Prot/human.rna.fna.gz >'$@.tmp' \\
 	&& mv '$@.tmp' '$@'
 
-all: /tmp/human.rna.fna.gz
+all: #/tmp/human.rna.fna.gz
 	gzip -cd <$< | perl -lne 'print $$& if m/NM_\d+\.\d+/' | sort >$@
+
+
+%.d: %
+	mkdir $@
+	split -l 100 $< $@/
+
+%.d/log: %.d
+	make $(addsuffix .cmp,$(wildcard $</??))
+
+.PRECIOUS: %.cmp
+%.cmp: %
+	xargs -n1 <$< ./bin/ncbi-compare-refseq-to-genome >$@ 2>$@.log
 
 
 ############################################################################

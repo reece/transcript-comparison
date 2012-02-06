@@ -76,7 +76,7 @@ def process1(acv):
     sys.stdout.write(acv)
     esr = ESearchResultParser( esearch_ac(acv) )
     if esr.Count == 0:
-        sys.stdout.write('\tobs\n')
+        sys.stdout.write('\tobs\t# obsolete refseq\n')
         return
 
     sys.stdout.write('\tcur')
@@ -95,10 +95,10 @@ def process1(acv):
     ex_n_eq = len(rs_exon_lengths) == len(g_exon_lengths)
     ex_len_eq = rs_exon_lengths == g_exon_lengths
 
-    sys.stdout.write('\t%s\t%s' % (len(rs_exons), ex_len_eq))
+    sys.stdout.write('\t%s\t%s\t%s' % (len(rs_exons), ex_n_eq, ex_len_eq))
 
     if not ex_n_eq:
-        sys.stdout.write('\n')
+        sys.stdout.write('\t# different number of exons\n')
         return
 
     rs_seq = rs.seq()
