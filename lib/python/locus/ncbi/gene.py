@@ -1,4 +1,7 @@
+import logging
 from lxml.etree import XML
+
+from locus.core.exceptions import LocusError
 
 class Gene(object):
     def __init__(self,xml):
@@ -50,6 +53,9 @@ class Gene(object):
 
     ######################################################################
     ## Internal functions
+    # TODO: Expand to manipulate alignments to non-chromosomal reference
+    # e.g., NM_000034.3, gene 226, aligns to an NG and HuRef, but not
+    # to GRCh37. Should use gis for all alignment
 
     def _grch37p5_product_gc(self,acv):
         ac,v = acv.split('.')
@@ -59,9 +65,10 @@ class Gene(object):
         pred = pred.format(ac=ac, v=v)
         xpath = 'Gene-commentary_products/Gene-commentary[%s]' % (pred)
         nodes = gc.xpath(xpath)
-        assert len(nodes) == 1, "Expected only one matching Gene-commentary_products for %s"%(acv)
+        if len(nodes) != 1:
+            raise LocusError("Got %d Gene-commentary_products for %s"%(len(nodes),acv))
         return nodes[0]
-
+        
     def _grch37p5_gc(self):
         return self._gc(heading='Reference GRCh37.p5 Primary Assembly')
 

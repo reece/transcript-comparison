@@ -2,7 +2,8 @@
 
 from __future__ import print_function
 
-import logging, os, pprint, sys, urllib2
+import logging, os, pprint, sys, traceback, urllib2
+from collections import defaultdict
 from lxml.etree import XML
 
 from cogent.db.ncbi import EFetch,ELink,ELinkResultParser,ESearch,ESearchResultParser
@@ -13,6 +14,7 @@ from StringIO import StringIO
 
 sys.path[0:0] = [os.path.join(os.path.dirname(
     os.path.dirname(__file__)),'lib/python')]
+from locus.core.exceptions import LocusError
 from locus.utils.memoize import memoize
 from locus.ncbi.refseq import RefSeq
 from locus.ncbi.gene import Gene
@@ -25,7 +27,7 @@ eutils_defaults = {
     }
 
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 es = ESearch(rettype='uilist',**eutils_defaults)
 ef = EFetch(**eutils_defaults)
@@ -56,12 +58,6 @@ def fetch_genomic_sequence_interval(chr,start,end):
     r = XML(urllib2.urlopen(url).read())
     return r.find('SEQUENCE/DNA').text.replace('\n','')
 
-def intervals_to_starts_ends_lengths(exon_intervals):
-    starts = [ e[0] for e in exon_intervals ]
-    ends = [ e[1] for e in exon_intervals ]
-    lengths = [ e[1]-e[0]+1 for e in exon_intervals ]
-    return starts,ends,lengths
-
 @memoize
 def align2(seqa,seqb):
     if seqa == seqb:
@@ -72,37 +68,59 @@ def align2(seqa,seqb):
     aln = AlignIO.read(StringIO(o),'emboss')
     return aln[0].seq.tostring(),aln[1].seq.tostring()
 
+def intervals_to_starts_ends_lengths(exon_intervals):
+    starts = [ e[0] for e in exon_intervals ]
+    ends = [ e[1] for e in exon_intervals ]
+    lengths = [ e[1]-e[0]+1 for e in exon_intervals ]
+    return starts,ends,lengths
+
+def coalesce(*args):
+    return next(s for s in args if s is not None)
+
 def process1(acv):
-    sys.stdout.write(acv)
+    rv = defaultdict(lambda: 'NA')
+    rv.update({ 
+            'ac_status': 'cur',
+            'comment': None,
+            'mismatches': []
+            })
+
     esr = ESearchResultParser( esearch_ac(acv) )
     if esr.Count == 0:
-        sys.stdout.write('\tobs\t# obsolete refseq\n')
-        return
+        rv['ac_status'] = 'obs'
+        rv['comment'] = 'obsolete refseq'
+        return rv
 
-    sys.stdout.write('\tcur')
-    assert esr.Count == 1, "Got more than one uid for %s[accn]: %s"%(acv,pprint.pformat(esr.IdList))
-    ui = esr.IdList[0]
+    assert esr.Count == 1, "Got more than one uid for %s[accn]: %s"%(
+        acv,pprint.pformat(esr.IdList))
+    rv['ui'] = ui = esr.IdList[0]
     rs = RefSeq( efetch_nuccore_ui(ui) )
     
     elr = ELinkResultParser( elink_nucleotide_ui_to_gene(ui) )
     assert len(elr) == 1, "Got more than one gene for ui="+ui
-    g = Gene(efetch_gene_by_gene_id(elr[0]))
+    rv['gene_id'] = gene_id = elr[0]
+    g = Gene(efetch_gene_by_gene_id(gene_id))
+    rv['gene'] = g.locus()
 
     rs_exons = rs.exons()
     g_exons = g.grch37p5_product_exons(acv)
     rs_exon_lengths = intervals_to_starts_ends_lengths(rs_exons)[2]
     g_exon_lengths = intervals_to_starts_ends_lengths(g_exons)[2]
-    ex_n_eq = len(rs_exon_lengths) == len(g_exon_lengths)
-    ex_len_eq = rs_exon_lengths == g_exon_lengths
 
-    sys.stdout.write('\t%s\t%s\t%s' % (len(rs_exons), ex_n_eq, ex_len_eq))
+    rv['n_rs_exons'] = len(rs_exon_lengths)
+    rv['n_g_exons'] = len(g_exon_lengths)
+    rv['ex_n_eq'] = len(rs_exon_lengths) == len(g_exon_lengths)
+    rv['ex_len_eq'] = rs_exon_lengths == g_exon_lengths
 
-    if not ex_n_eq:
-        sys.stdout.write('\t# different number of exons\n')
-        return
+    m = g.grch37p5_mapping()
+    rv['maploc'] = g.maploc()
+    rv['strand'] = m['strand']
+
+    if not rv['ex_n_eq']:
+        rv['comment'] = 'different number of exons'
+        return rv
 
     rs_seq = rs.seq()
-    m = g.grch37p5_mapping()
     n_tot_snvs = 0
     n_tot_indels = 0
     mismatches = []
@@ -120,15 +138,31 @@ def process1(acv):
         snvs   = [ i+1 for i in range(len(ras)) if (ras[i]!='-' and gas[i]!='-' and ras[i]!=gas[i]) ]
         indels = [ i+1 for i in range(len(ras)) if (ras[i]=='-' or  gas[i]=='-') ]
         if len(snvs)>0 or len(indels)>0:
-            mismatches += ['%d:%s' % (
+            mismatches += ['%s:%s' % (
                 exon_i+1, ','.join( [str(s)+'S' for s in snvs]+[str(s)+'I' for s in indels] ))]
         n_tot_snvs += len(snvs)
         n_tot_indels += len(indels)
-    sys.stdout.write('\t%s (tot:%d/%d; mm:%s)\n' % (
-            (n_tot_snvs==0 and n_tot_indels==0),
-            n_tot_snvs,n_tot_indels,
-            '; '.join(mismatches)))
+    rv['n_tot_snvs'] = n_tot_snvs
+    rv['n_tot_indels'] = n_tot_indels
+    rv['mismatches'] = mismatches
+    return rv
 
+
+def strand_sign(s):
+    if s == 'plus': return '+'
+    if s == 'minus': return '-'
+    else: return None
 
 for acv in sys.argv[1:]:
-    process1(acv)
+    try:
+        rv = process1(acv)
+        rv['ss'] = strand_sign(rv['strand']) + rv['maploc']
+        rv['mms'] = '%s/%s (%s)' % ( rv['n_tot_snvs'], rv['n_tot_indels'], 
+                                          ';'.join(rv['mismatches']) )
+        print(
+            '\t'.join( str(e) for e in [ 
+                    acv, rv['ac_status'], rv['gene'], rv['ss'], rv['n_rs_exons'],
+                    rv['ex_n_eq'], rv['ex_len_eq'],  rv['mms'], '#'+coalesce(rv['comment'],'') ]))
+    except Exception as e:
+        print('\t'.join(['!'+acv,''.join(traceback.format_exception(type(e),e.message,None))]))
+        print(rv)

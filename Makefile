@@ -32,6 +32,9 @@ all: #/tmp/human.rna.fna.gz
 %.cmp: %
 	xargs -n1 <$< ./bin/ncbi-compare-refseq-to-genome >$@ 2>$@.log
 
+all.cmp: all.d/log
+	cat $(addsuffix .cmp,$(wildcard ${<D}/??.cmp)) >$@
+
 
 ############################################################################
 ## miscellaneous utilities
