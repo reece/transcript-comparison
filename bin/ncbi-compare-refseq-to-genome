@@ -2,14 +2,12 @@
 
 import logging, os, pprint, sys
 
-from cogent.db.ncbi import EFetch,ELink,ESearch
+from cogent.db.ncbi import EFetch,ELink,ELinkResultParser,ESearch,ESearchResultParser
 
 sys.path[0:0] = [os.path.join(os.path.dirname(
     os.path.dirname(__file__)),'lib/python')]
 from locus.utils.memoize import memoize
-from locus.ncbi.esearchresult import ESearchResult
 from locus.ncbi.refseq import RefSeq
-from locus.ncbi.elinkresult import ELinkResult
 from locus.ncbi.gene import Gene
 
 eutils_defaults = {
@@ -20,7 +18,7 @@ eutils_defaults = {
     }
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 es = ESearch(rettype='uilist',**eutils_defaults)
 ef = EFetch(**eutils_defaults)
@@ -47,13 +45,12 @@ def efetch_gene_by_gene_id(gene_id):
 
 ac = 'NM_006158.3'
 
-esr = ESearchResult( esearch_ac(ac) )
-assert len(esr.uilist()) == 1, "Got more than one uid for %s[accn]"%(ac)
-ui = esr.uilist()[0]
+esr = ESearchResultParser( esearch_ac(ac) )
+assert esr.Count == 1, "Got more than one uid for %s[accn]"%(ac)
+ui = esr.IdList[0]
 rs = RefSeq( efetch_nuccore_ui(ui) )
 
-elr = ELinkResult( elink_nucleotide_ui_to_gene(ui) )
-assert len(elr.results()) == 1, pprint.pformat(elr)
-gene_id = elr.results()[0]['ids']
-g = Gene(efetch_gene_by_gene_id(gene_id))
+elr = ELinkResultParser( elink_nucleotide_ui_to_gene(ui) )
+assert len(elr) == 1, "Got more than one gene for ui="+ui
+g = Gene(efetch_gene_by_gene_id(elr[0]))
 
