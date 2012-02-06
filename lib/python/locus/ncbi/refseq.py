@@ -14,7 +14,8 @@ class RefSeq(object):
         exon_nodes = self._root.xpath('/GBSet/GBSeq/GBSeq_feature-table/GBFeature[GBFeature_key="exon"]')
         return [ _feature_se(n) for n in exon_nodes ]
 
-
+    def seq(self):
+        return self._root.xpath('/GBSet/GBSeq/GBSeq_sequence')[0].text
 
 def _feature_se(gbf):
     s,e = gbf.find('GBFeature_location').text.split('..')

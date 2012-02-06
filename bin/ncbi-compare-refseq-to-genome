@@ -2,9 +2,13 @@
 
 from __future__ import print_function
 
-import logging, os, pprint, sys
+import logging, os, pprint, sys, urllib2
+from lxml.etree import XML
 
 from cogent.db.ncbi import EFetch,ELink,ELinkResultParser,ESearch,ESearchResultParser
+from cogent.util.misc import reverse_complement
+from cogent.align.algorithm import nw_align
+
 
 sys.path[0:0] = [os.path.join(os.path.dirname(
     os.path.dirname(__file__)),'lib/python')]
@@ -44,6 +48,12 @@ def elink_nucleotide_ui_to_gene(ui):
 def efetch_gene_by_gene_id(gene_id):
     return ef.read(db='gene',id=gene_id)
 
+@memoize
+def fetch_genomic_sequence_interval(chr,start,end):
+    url = ('http://genome.ucsc.edu/cgi-bin/das/hg19/dna?'
+           'segment=chr{chr}:{start},{end}').format(chr=chr,start=start,end=end)
+    r = XML(urllib2.urlopen(url).read())
+    return r.find('SEQUENCE/DNA').text.replace('\n','')
 
 def intervals_to_starts_ends_lengths(exon_intervals):
     starts = [ e[0] for e in exon_intervals ]
@@ -53,9 +63,13 @@ def intervals_to_starts_ends_lengths(exon_intervals):
 
 
 def process1(acv):
+    sys.stdout.write(acv)
     esr = ESearchResultParser( esearch_ac(acv) )
     if esr.Count == 0:
-        return 'obsolete'
+        sys.stdout.write('\tobs\n')
+        return
+
+    sys.stdout.write('\tcur')
     assert esr.Count == 1, "Got more than one uid for %s[accn]: %s"%(acv,pprint.pformat(esr.IdList))
     ui = esr.IdList[0]
     rs = RefSeq( efetch_nuccore_ui(ui) )
@@ -64,14 +78,42 @@ def process1(acv):
     assert len(elr) == 1, "Got more than one gene for ui="+ui
     g = Gene(efetch_gene_by_gene_id(elr[0]))
 
-    rs_exon_lengths = intervals_to_starts_ends_lengths(rs.exons())[2]
-    g_exon_lengths = intervals_to_starts_ends_lengths(g.grch37p5_product_exons(acv))[2]
+    rs_exons = rs.exons()
+    g_exons = g.grch37p5_product_exons(acv)
+    rs_exon_lengths = intervals_to_starts_ends_lengths(rs_exons)[2]
+    g_exon_lengths = intervals_to_starts_ends_lengths(g_exons)[2]
+    ex_n_eq = len(rs_exon_lengths) == len(g_exon_lengths)
+    ex_len_eq = rs_exon_lengths == g_exon_lengths
 
-    if rs_exon_lengths != g_exon_lengths:
-        return 'ne'
-    return 'eq'
-    
+    sys.stdout.write('\t%s\t%s' % (len(rs_exons), ex_len_eq))
+
+    if not ex_n_eq:
+        sys.stdout.write('\n')
+        return
+
+    rs_seq = rs.seq()
+    m = g.grch37p5_mapping()
+    n_tot_snvs = 0
+    n_tot_indels = 0
+    for i in range(len(rs_exons)):
+        rs_start = rs_exons[i][0]
+        rs_end = rs_exons[i][1]
+        rs_ex_seq = rs_seq[rs_start-1:rs_end] # 0-based, half-open
+        g_start = g_exons[i][0]
+        g_end = g_exons[i][1]
+        g_ex_seq = fetch_genomic_sequence_interval(m['chr'],g_start+1,g_end+1)
+        if m['strand'] == 'minus':
+            g_ex_seq = reverse_complement(g_ex_seq)
+        continue
+        ras,gas = nw_align(rs_ex_seq,g_ex_seq)
+        assert len(ras)==len(gas), "global alignment should be same length"
+        n_snvs = len([ i for i in range(len(ras)) if ras[i]!='-' and gas[i]!='-' and ras[i]!=gas[i] ])
+        n_indels = ras.count('-') + gas.count('-')
+        n_tot_snvs += n_snvs
+        n_tot_indels += n_indels
+    sys.stdout.write('\t%s (%d/%d)\n' % ( (n_tot_snvs==0 and n_tot_indels==0),
+                                          n_tot_snvs,n_tot_indels) )
 
 
 for acv in sys.argv[1:]:
-    print('%-15s %s' % (acv,process1(acv)))
+    process1(acv)
