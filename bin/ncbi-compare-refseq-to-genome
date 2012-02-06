@@ -156,13 +156,18 @@ def strand_sign(s):
 for acv in sys.argv[1:]:
     try:
         rv = process1(acv)
+        if rv['ac_status'] == 'obs':
+            print('\t'.join([acv,rv['ac_status'],'#'+rv['comment']]))
+            continue
         rv['ss'] = strand_sign(rv['strand']) + rv['maploc']
         rv['mms'] = '%s/%s (%s)' % ( rv['n_tot_snvs'], rv['n_tot_indels'], 
                                           ';'.join(rv['mismatches']) )
         print(
             '\t'.join( str(e) for e in [ 
                     acv, rv['ac_status'], rv['gene'], rv['ss'], rv['n_rs_exons'],
-                    rv['ex_n_eq'], rv['ex_len_eq'],  rv['mms'], '#'+coalesce(rv['comment'],'') ]))
+                    rv['ex_n_eq'], rv['ex_len_eq'],  
+                    rv['n_tot_snvs']==0 and rv['n_tot_indels']==0, 
+                    rv['mms'], '#'+coalesce(rv['comment'],'') ]))
     except Exception as e:
         print('\t'.join(['!'+acv,''.join(traceback.format_exception(type(e),e.message,None))]))
         print(rv)

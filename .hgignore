@@ -9,3 +9,5 @@ syntax: glob
 tmp
 ve
 all.d
+all*
+curated*
