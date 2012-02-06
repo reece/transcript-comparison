@@ -16,6 +16,20 @@ install-reqs: etc/reqs.pip ${VIRTUALENV_DIR}
 
 
 
+############################################################################
+## miscellaneous utilities
+BLOCK:=The following items are updated automatically by make TODO
+TODO: FORCE
+	# updating $@
+	@( \
+	set -e; \
+	[ -s "$@" ] && perl -lpe 'last if $$_ eq "${BLOCK}"' <"$@"; \
+	echo "${BLOCK}"; \
+	find bin lib/python/locus \( -name \*.py \) -print0 \
+	| xargs -0r perl -ne 'if (s/^\s*#\s*(?=TODO:|FIXME:)//) {' \
+	-e 'print("\n$$ARGV:\n","="x76,"\n") unless $$p{$$ARGV}++; print;}' \
+	) >"$@.tmp" && /bin/mv "$@.tmp" "$@"
+
 
 .PHONY: clean cleaner cleanest
 clean:
@@ -24,3 +38,4 @@ cleaner: clean
 	find . \( -name \*bak -o -name \*.orig \) -print0 | xargs -0r /bin/rm
 cleanest: cleaner
 	/bin/rm -fr ${VIRTUALENV_DIR}
+
