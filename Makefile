@@ -13,7 +13,12 @@ install-reqs: etc/reqs.pip ${VIRTUALENV_DIR}
 	${VIRTUALENV_DIR}/bin/pip install -r $<
 
 
+/tmp/human.rna.fna.gz:
+	curl ftp://ftp.ncbi.nlm.nih.gov/refseq/H_sapiens/mRNA_Prot/human.rna.fna.gz >'$@.tmp' \\
+	&& mv '$@.tmp' '$@'
 
+all: /tmp/human.rna.fna.gz
+	gzip -cd <$< | perl -lne 'print $$& if m/NM_\d+\.\d+/' | sort >$@
 
 
 ############################################################################

@@ -64,6 +64,8 @@ def intervals_to_starts_ends_lengths(exon_intervals):
 
 @memoize
 def align2(seqa,seqb):
+    if seqa == seqb:
+        return seqa,seqb
     cline = NeedleCommandline(asequence='asis:'+seqa, bsequence='asis:'+seqb,
                               gapopen=10,gapextend=0.5,auto=True,filter=True,stdout=True)
     o,e = cline()
