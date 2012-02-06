@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
+
 import logging, os, pprint, sys
 
 from cogent.db.ncbi import EFetch,ELink,ELinkResultParser,ESearch,ESearchResultParser
@@ -31,7 +33,7 @@ def esearch_ac(ac):
 
 @memoize
 def efetch_nuccore_ui(ui):
-    return ef.read(db='nuccore',id=esr.uilist()[0],retmode='xml',rettype='gb')
+    return ef.read(db='nuccore',id=ui,retmode='xml',rettype='gb')
 
 @memoize
 def elink_nucleotide_ui_to_gene(ui):
@@ -43,14 +45,33 @@ def efetch_gene_by_gene_id(gene_id):
     return ef.read(db='gene',id=gene_id)
 
 
-acv = 'NM_006158.3'
+def intervals_to_starts_ends_lengths(exon_intervals):
+    starts = [ e[0] for e in exon_intervals ]
+    ends = [ e[1] for e in exon_intervals ]
+    lengths = [ e[1]-e[0]+1 for e in exon_intervals ]
+    return starts,ends,lengths
 
-esr = ESearchResultParser( esearch_ac(acv) )
-assert esr.Count == 1, "Got more than one uid for %s[accn]"%(ac)
-ui = esr.IdList[0]
-rs = RefSeq( efetch_nuccore_ui(ui) )
 
-elr = ELinkResultParser( elink_nucleotide_ui_to_gene(ui) )
-assert len(elr) == 1, "Got more than one gene for ui="+ui
-g = Gene(efetch_gene_by_gene_id(elr[0]))
+def process1(acv):
+    esr = ESearchResultParser( esearch_ac(acv) )
+    if esr.Count == 0:
+        return 'obsolete'
+    assert esr.Count == 1, "Got more than one uid for %s[accn]: %s"%(acv,pprint.pformat(esr.IdList))
+    ui = esr.IdList[0]
+    rs = RefSeq( efetch_nuccore_ui(ui) )
+    
+    elr = ELinkResultParser( elink_nucleotide_ui_to_gene(ui) )
+    assert len(elr) == 1, "Got more than one gene for ui="+ui
+    g = Gene(efetch_gene_by_gene_id(elr[0]))
 
+    rs_exon_lengths = intervals_to_starts_ends_lengths(rs.exons())[2]
+    g_exon_lengths = intervals_to_starts_ends_lengths(g.grch37p5_product_exons(acv))[2]
+
+    if rs_exon_lengths != g_exon_lengths:
+        return 'ne'
+    return 'eq'
+    
+
+
+for acv in sys.argv[1:]:
+    print('%-15s %s' % (acv,process1(acv)))

@@ -22,7 +22,7 @@ class memoize(object):
     
     def __init__(self, func):
         self._func = func
-        dir='/tmp/memoize-%d' % (os.getuid())
+        dir= os.path.expanduser('~/tmp/memoize-%d' % (os.getuid()))
         if not os.path.exists(dir):
             os.mkdir(dir,0700)                      # Is there a EAFP way to do this?
         cache_fn = os.path.join(dir,'%s.cache' % self._func.func_name)

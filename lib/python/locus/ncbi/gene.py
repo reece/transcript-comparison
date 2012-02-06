@@ -22,13 +22,6 @@ class Gene(object):
         i = gc.iterfind('Gene-commentary_genomic-coords/Seq-loc/Seq-loc_mix/Seq-loc-mix/Seq-loc/Seq-loc_int/Seq-interval')
         return [ (int(n.find('Seq-interval_from').text),int(n.find('Seq-interval_to').text)) for n in i ]
 
-    def grch37p5_product_exon_starts_ends_lengths(self,acv):
-        exons = self.grch37p5_product_exons(acv)
-        starts = [ e[0] for e in exons ]
-        ends = [ e[1] for e in exons ]
-        lengths = [ e[1]-e[0]+1 for e in exons ]
-        return starts,ends,lengths
-
     def grch37p5_product_strand(self,acv):
         gc = self._grch37p5_product_gc(acv)
         n = gc.find('Gene-commentary_genomic-coords/Seq-loc/Seq-loc_mix/Seq-loc-mix/Seq-loc/Seq-loc_int/Seq-interval')

@@ -14,14 +14,6 @@ class RefSeq(object):
         exon_nodes = self._root.xpath('/GBSet/GBSeq/GBSeq_feature-table/GBFeature[GBFeature_key="exon"]')
         return [ _feature_se(n) for n in exon_nodes ]
 
-    def exon_starts_ends_lengths(self):
-        exons = self.exons()
-        starts = [ e[0] for e in exons ]
-        ends = [ e[1] for e in exons ]
-        lengths = [ e[1]-e[0]+1 for e in exons ]
-        return starts,ends,lengths
-
-
 
 
 def _feature_se(gbf):
