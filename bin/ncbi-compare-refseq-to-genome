@@ -7,8 +7,9 @@ from lxml.etree import XML
 
 from cogent.db.ncbi import EFetch,ELink,ELinkResultParser,ESearch,ESearchResultParser
 from cogent.util.misc import reverse_complement
-from cogent.align.algorithm import nw_align
-
+from Bio.Emboss.Applications import NeedleCommandline
+from Bio import AlignIO
+from StringIO import StringIO
 
 sys.path[0:0] = [os.path.join(os.path.dirname(
     os.path.dirname(__file__)),'lib/python')]
@@ -61,6 +62,13 @@ def intervals_to_starts_ends_lengths(exon_intervals):
     lengths = [ e[1]-e[0]+1 for e in exon_intervals ]
     return starts,ends,lengths
 
+@memoize
+def align2(seqa,seqb):
+    cline = NeedleCommandline(asequence='asis:'+seqa, bsequence='asis:'+seqb,
+                              gapopen=10,gapextend=0.5,auto=True,filter=True,stdout=True)
+    o,e = cline()
+    aln = AlignIO.read(StringIO(o),'emboss')
+    return aln[0].seq.tostring(),aln[1].seq.tostring()
 
 def process1(acv):
     sys.stdout.write(acv)
@@ -95,24 +103,29 @@ def process1(acv):
     m = g.grch37p5_mapping()
     n_tot_snvs = 0
     n_tot_indels = 0
-    for i in range(len(rs_exons)):
-        rs_start = rs_exons[i][0]
-        rs_end = rs_exons[i][1]
+    mismatches = []
+    for exon_i in range(len(rs_exons)):
+        rs_start = rs_exons[exon_i][0]
+        rs_end = rs_exons[exon_i][1]
         rs_ex_seq = rs_seq[rs_start-1:rs_end] # 0-based, half-open
-        g_start = g_exons[i][0]
-        g_end = g_exons[i][1]
+        g_start = g_exons[exon_i][0]
+        g_end = g_exons[exon_i][1]
         g_ex_seq = fetch_genomic_sequence_interval(m['chr'],g_start+1,g_end+1)
         if m['strand'] == 'minus':
             g_ex_seq = reverse_complement(g_ex_seq)
-        continue
-        ras,gas = nw_align(rs_ex_seq,g_ex_seq)
+        ras,gas = align2(rs_ex_seq,g_ex_seq)
         assert len(ras)==len(gas), "global alignment should be same length"
-        n_snvs = len([ i for i in range(len(ras)) if ras[i]!='-' and gas[i]!='-' and ras[i]!=gas[i] ])
-        n_indels = ras.count('-') + gas.count('-')
-        n_tot_snvs += n_snvs
-        n_tot_indels += n_indels
-    sys.stdout.write('\t%s (%d/%d)\n' % ( (n_tot_snvs==0 and n_tot_indels==0),
-                                          n_tot_snvs,n_tot_indels) )
+        snvs   = [ i+1 for i in range(len(ras)) if (ras[i]!='-' and gas[i]!='-' and ras[i]!=gas[i]) ]
+        indels = [ i+1 for i in range(len(ras)) if (ras[i]=='-' or  gas[i]=='-') ]
+        if len(snvs)>0 or len(indels)>0:
+            mismatches += ['%d:%s' % (
+                exon_i+1, ','.join( [str(s)+'S' for s in snvs]+[str(s)+'I' for s in indels] ))]
+        n_tot_snvs += len(snvs)
+        n_tot_indels += len(indels)
+    sys.stdout.write('\t%s (tot:%d/%d; mm:%s)\n' % (
+            (n_tot_snvs==0 and n_tot_indels==0),
+            n_tot_snvs,n_tot_indels,
+            '; '.join(mismatches)))
 
 
 for acv in sys.argv[1:]:
