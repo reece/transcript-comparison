@@ -11,9 +11,8 @@
 import atexit, hashlib, logging, os, pickle, shelve, sys
 
 class memoize(object):
-    """Decorator that caches a function's return value each time it is called.
-    If called later with the same arguments, the cached value is returned, and
-    not re-evaluated.
+    """On-disk memoization.  To use it, simply precede a function or method
+    definition with @memoize
     """
 
     import logging
@@ -22,7 +21,7 @@ class memoize(object):
     
     def __init__(self, func):
         self._func = func
-        dir= os.path.expanduser('~/tmp/memoize-%d' % (os.getuid()))
+        dir= os.path.expanduser('~/tmp/memoize')
         if not os.path.exists(dir):
             os.mkdir(dir,0700)                      # Is there a EAFP way to do this?
         cache_fn = os.path.join(dir,'%s.cache' % self._func.func_name)
