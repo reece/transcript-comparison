@@ -4,6 +4,8 @@
 SHELL:=/bin/bash
 
 VIRTUALENV_DIR:=ve
+export PYTHONUNBUFFERED:=1
+export PYTHONPATH:=${HOME}/projects/locus-python/lib
 
 setup: ${VIRTUALENV_DIR} install-reqs
 
@@ -28,9 +30,9 @@ all: #/tmp/human.rna.fna.gz
 %.d/log: %.d
 	make $(addsuffix .cmp,$(wildcard $</??))
 
-.PRECIOUS: %.cmp
+.SECONDARY: %.cmp
 %.cmp: %
-	xargs -n1 <$< ./bin/ncbi-compare-refseq-to-genome >$@ 2>$@.log
+	xargs <$< ./bin/ncbi-compare-refseq-to-genome >$@ 2>$@.log
 
 all.cmp: all.d/log
 	cat $(addsuffix .cmp,$(wildcard ${<D}/??.cmp)) >$@
