@@ -16,8 +16,6 @@ class memoize(object):
     """
 
     import logging
-    logging.basicConfig(level=logging.DEBUG)
-    logger = logging
     
     def __init__(self, func):
         self._func = func
@@ -26,7 +24,7 @@ class memoize(object):
             os.mkdir(dir,0700)                      # Is there a EAFP way to do this?
         cache_fn = os.path.join(dir,'%s.cache' % self._func.func_name)
         self.cache = shelve.open(cache_fn)
-        self.logger.debug('opened cache for %s (%s)' % (self._func.func_name,cache_fn))
+        logging.debug('opened cache for %s (%s)' % (self._func.func_name,cache_fn))
         atexit.register( lambda : self.cache.close() )
 
     def compute_key(self,args,kw):
@@ -38,14 +36,16 @@ class memoize(object):
         # If previous key method fails, consider compute_key, like this:
         # key = self.compute_key(args,kw)
         if not self.cache.has_key(key):
-            self.logger.debug('miss: %s(%s)' % (self._func.func_name,key))
+            logging.debug('miss: %s(%s)' % (self._func.func_name,key))
             self.cache[key] = value = self._func(*args,**kw)
         else:
-            self.logger.debug('hit: %s(%s)' % (self._func.func_name,key))
+            logging.debug('hit: %s(%s)' % (self._func.func_name,key))
         return self.cache[key]
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
+
     @memoize
     def fib(n):
         return (n > 1) and (fib(n - 1) + fib(n - 2)) or 1

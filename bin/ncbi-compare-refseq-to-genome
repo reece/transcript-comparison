@@ -1,4 +1,8 @@
 #!/usr/bin/env python
+#
+
+# TODO: add timing to download and alignment segments
+# TODO: add # splice forms
 
 from __future__ import print_function
 
