@@ -19,7 +19,7 @@ from StringIO import StringIO
 sys.path[0:0] = [os.path.join(os.path.dirname(
     os.path.dirname(__file__)),'lib/python')]
 from locus.core.exceptions import LocusError
-from locus.utils.memoize_dbm import memoize
+from locus.utils.memoize_mongo import memoize
 from locus.ncbi.refseq import RefSeq
 from locus.ncbi.gene import Gene
 
@@ -32,7 +32,7 @@ eutils_defaults = {
     }
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 es = ESearch(rettype='uilist',**eutils_defaults)
 ef = EFetch(**eutils_defaults)
@@ -56,7 +56,7 @@ def elink_nucleotide_ui_to_gene(ui):
 def efetch_gene_by_gene_id(gene_id):
     return ef.read(db='gene',id=gene_id)
 
-@memoize
+#@memoize
 def fetch_genomic_sequence_interval(chr,start,end):
     url = ('http://genome.ucsc.edu/cgi-bin/das/hg19/dna?'
            'segment=chr{chr}:{start},{end}').format(chr=chr,start=start,end=end)
@@ -152,6 +152,7 @@ def process1(acv):
         rv['mismatches'] = mismatches
     except Exception as e:
         rv['comment'] = ''.join(traceback.format_exception(type(e),e.message,None))
+        raise
     return rv
 
 def strand_sign(s):
