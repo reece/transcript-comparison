@@ -19,9 +19,10 @@ from StringIO import StringIO
 sys.path[0:0] = [os.path.join(os.path.dirname(
     os.path.dirname(__file__)),'lib/python')]
 from locus.core.exceptions import LocusError
-from locus.utils.memoize import memoize
+from locus.utils.memoize_dbm import memoize
 from locus.ncbi.refseq import RefSeq
 from locus.ncbi.gene import Gene
+
 
 eutils_defaults = {
     'tool': sys.argv[0],
