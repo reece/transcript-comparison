@@ -1,0 +1,13 @@
+#!/bin/sh
+# refseq-exse -- get exon start,end list from ucsc
+
+mysql -qB -h genome-mysql.cse.ucsc.edu -u genome -D hg19 <<EOF
+SELECT CONCAT(acc,'.',version) AS ac,chrom,strand,txStart,txEnd,
+   (case when cdsStart=cdsEnd then '' else cdsStart end),exonCount,exonStarts,exonEnds
+FROM refFlat RF
+JOIN gbSeq GB ON RF.name=GB.acc
+WHERE chrom REGEXP 'chrY'
+ORDER BY chrom,txStart
+EOF
+
+#'chr([XY]|[0-9]+)\$'
