@@ -12,9 +12,28 @@ use Bio::EnsEMBL::Registry;
 use Data::Dumper;
 use Digest::SHA qw(sha1_hex);
 
-my $registry = 'Bio::EnsEMBL::Registry';
 my @refseq_mrna_db_ids = qw(1801);
+my @fmt_def = (
+  [ 'id',           '%-15s' ],
+  [ 'gene',         '%-15s' ],
+  [ 'pseudo',       '%2s'   ],
+  [ 'ccds',         '%-15s' ],
+  [ 'refseq',       '%-15s' ],
+  [ 'chr',          '%3s'   ],
+  [ 'strand',       '%2s'   ],
+  [ 'length',       '%5d'   ],
+  [ 'cds-start',    '%10d'  ],
+  [ 'cds-end',      '%10d'  ],
+  [ 'n_exons',      '%2d'   ],
+  [ 'n_cds_exons',  '%2d'   ],
+  [ 'exons',        '%s'    ],
+  [ 'cds_exons',    '%s'    ],
+);
+my $fmt = join(' ',map {$_->[1]} @fmt_def);
+my @keys = map {$_->[0]} @fmt_def;
 
+
+my $registry = 'Bio::EnsEMBL::Registry';
 $registry->load_registry_from_db(
     -host => 'db-prd.locusdev.net',
     -user => 'anonymous'
@@ -38,76 +57,104 @@ foreach my $chr (@ARGV) {
 
   # loop over NMs
   foreach my $rs_tx (@rs_tx) {
-	# get info from RefSeq transcript
-	my $rs_ti = tx_info($rs_tx);
-	printf("%1s %-7s %s\n", '*', '', ti_format($rs_ti));
+    # get info from RefSeq transcript
+    my $rs_ti = tx_info($rs_tx);
+    printf("%1s %-7s %s\n", '*', '', ti_format($rs_ti));
 
-	# find all Ensembl transcripts overlapping the refseq feature
-	my @e_tx = @{ $ta->fetch_all_by_Slice($rs_tx->feature_Slice()) };
+    # find all Ensembl transcripts overlapping the refseq feature
+    my @e_tx = @{ $ta->fetch_all_by_Slice($rs_tx->feature_Slice()) };
 
-	# loop over ENSTs, comparing each with the RefSeq
-	for my $e_tx (@e_tx) {
-	  # get info on transcript, transformed to chromosomal coords
-	  # (same as RefSeqs)
-	  my $e_ti = tx_info($e_tx->transform('chromosome'));
+    # loop over ENSTs, comparing each with the RefSeq
+    for my $e_tx (@e_tx) {
+      # get info on transcript, transformed to chromosomal coords
+      # (same as RefSeqs)
+      my $e_ti = tx_info($e_tx->transform('chromosome'));
 
-	  # don't bother comparing transcripts that differ by >=25 nt
-	  next unless abs($rs_ti->{'length'} - $e_ti->{'length'}) < 25;
+      # don't bother comparing transcripts that differ by >=25 nt
+      next unless abs($rs_ti->{'length'} - $e_ti->{'length'}) < 25;
 
-	  # print transcript row; ti_cmp prefix is a summary of the comparison
-	  printf("%1s %-7s %s\n", '', ti_cmp($rs_ti,$e_ti), ti_format($e_ti));
-	}
+      # print transcript row; ti_cmp prefix is a summary of the comparison
+      printf("%1s %-7s %s\n", '', ti_cmp($rs_ti,$e_ti), ti_format($e_ti));
+    }
   }
 }
 
 exit(0);
 
+############################################################################
+
 
 sub ti_format {
   my $ti = shift;
-  return sprintf('%-15s %-15s %12s %12s %5s %2s %5s %10d %10d %5s %s',
-				 @$ti{qw(id gene ccds refseq chr strand length cds-start cds-end n_exons exons)});
+  sprintf($fmt,@$ti{@keys})
 }
 
 sub ti_cmp {
   my ($t1,$t2) = @_;
   join('',
-	   ($t1->{'n_exons'}  == $t2->{'n_exons'}	? '#' : ' '),
-	   ($t1->{'length'}	  == $t2->{'length'}	? 'L' : ' '),
-	   ($t1->{'cds-sha1'} eq $t2->{'cds-sha1'}	? 'C' : ' '),
-	   ($t1->{'exons'}	  eq $t2->{'exons'}		? 'E' : ' '),
-	  )
+       ($t1->{'n_exons'}     == $t2->{'n_exons'}     ? 'N' : ' '),
+       ($t1->{'n_cds_exons'} == $t2->{'n_cds_exons'} ? 'n' : ' '),
+       ($t1->{'length'}      == $t2->{'length'}      ? 'L' : ' '),
+       ($t1->{'cds-sha1'}    eq $t2->{'cds-sha1'}    ? 'C' : ' '),
+       ($t1->{'exons'}       eq $t2->{'exons'}       ? 'E' : ' '),
+       ($t1->{'cds_exons'}   eq $t2->{'cds_exons'}   ? 'e' : ' '),
+       ($t1->{'strand'}      eq $t2->{'strand'}      ? 'S' : ' '), # better be! sanity check
+      )
 }
 
 sub tx_info {
   my $t = shift;
-  #my @exons_se = map {[$_->start(),$_->end()]} @{ $t->get_all_Exons() };
-  my @exons_se = map {[$_->start(),$_->end()]} map {$_->transform('chromosome')} @{ $t->get_all_Exons() };
+  my $cds_start = $t->coding_region_start();
+  my $cds_end = $t->coding_region_end();
+
+  my @exons_se = map {[$_->start(),$_->end()]} @{ $t->get_all_Exons() };
+
+  # cds_start and/or cds_end not defined for pseudogenes
+  my $pseudo = not(defined $cds_start and defined $cds_end);
+
+  # clip the exons to the cds region
+  my @cds_exons_se = @exons_se;
+  if (not $pseudo) {
+    if ($t->strand() == 1) {
+      shift(@cds_exons_se) while @cds_exons_se and $cds_exons_se[0][1] < $cds_start;
+      $cds_exons_se[0][0] = $cds_start;
+    } else {
+      pop(@cds_exons_se) while @cds_exons_se and $cds_exons_se[0][0] > $cds_end;
+      $cds_exons_se[0][1] = $cds_end;
+    }
+  }
+
   my $sl =  $t->slice()->name();
   my ($chr) = $sl =~ m/chromosome:GRCh37:([^:]+):/;
-  die unless defined $chr;					# really?
   my $g = $t->get_Gene();
   my $gene_name = $g->display_id();
-  my @dblinks = @{$g->get_all_DBLinks()};	# perhaps empty
+  my @dblinks = @{$g->get_all_DBLinks()};   # perhaps empty
   my $ccds   = join(',',uniq(grep {/^CCDS/} map {$_->display_id()} @dblinks));
   my $refseq = join(',',uniq(grep {/^NM/}   map {$_->display_id()} @dblinks));
   return {
-	'id' => $t->display_id(),
-	'chr' => $chr,
-	'gene' => $gene_name,
-	'ccds' => $ccds,
-	'refseq' => $refseq,
-	'strand' => $t->strand(),
-	'cds-start' => $t->coding_region_start(),
-	'cds-end' => $t->coding_region_end(),
-	'length' => $t->length(),
-	'n_exons' => $#exons_se+1,
-	'exons' => join(',',map {"[$_->[0],$_->[1]]"} @exons_se),
-	'cds-sha1' => sha1_hex($t->seq()->seq()),
+    'id' => $t->display_id(),
+    'chr' => $chr,
+    'gene' => $gene_name,
+    'pseudo' => $pseudo,
+    'ccds' => $ccds,
+    'refseq' => $refseq,
+    'strand' => $t->strand(),
+    'cds-start' => $t->coding_region_start(),
+    'cds-end' => $t->coding_region_end(),
+    'length' => $t->length(),
+    'n_exons' => $#exons_se+1,
+    'exons' => se_str(@exons_se),
+    'n_cds_exons' => $#cds_exons_se+1,
+    'cds_exons' => se_str(@cds_exons_se),
+    'cds-sha1' => sha1_hex($t->seq()->seq()),
   };
 }
 
 
 sub uniq {
   return keys %{{ map {$_=>1} @_ }};
+}
+
+sub se_str {
+  join(',', map {sprintf('[%s,%s]', $_->[0]||'?', $_->[1]||'?')} @_);
 }
