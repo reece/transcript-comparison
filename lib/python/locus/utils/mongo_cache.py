@@ -29,13 +29,13 @@ class mongo_cache(object):
 
     def __setitem__(self,key,value):
         self._c.insert( {'key': key, 'value': value} )
-        logging.info('%s[%s]: writing %d bytes' % (self,key,len(value)))
+        logging.info('%s[%s]: writing apx %d bytes' % (self,key,len(str(value))))
         #self._c.update( {'key': key}, {'key': key, 'value': value}, upsert=True )
 
     def __getitem__(self,key):
         try:
             value = self._c.find({'key': key}).next()['value']
-            logging.info('%s[%s]: read %d bytes' % (self,key,len(value)))
+            logging.info('%s[%s]: read apx %d bytes' % (self,key,len(str(value))))
             return value
         except StopIteration:
             try:

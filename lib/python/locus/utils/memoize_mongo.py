@@ -12,7 +12,8 @@ import hashlib, logging, os, pickle, pymongo, sys
 
 from mongo_cache import mongo_cache
 
-conn = pymongo.Connection(host='db-vpn.locusdev.net')
+mongo_host = os.environ.get('MONGO_HOST') or 'db-prd.locusdev.net'
+conn = pymongo.Connection(host=mongo_host)
 
 class memoize(object):
     """Mongo-based memoization.
@@ -35,10 +36,11 @@ class memoize(object):
         # key = self.compute_key(args,kw)
         if key not in self._cache:
             logging.info('miss: %s' % (key))
-            self._cache[key] = self._func(*args,**kw)
+            value = self._cache[key] = self._func(*args,**kw)
         else:
             logging.info('hit: %s' % (key))
-        return self._cache[key]
+            value = self._cache[key]
+        return value
 
 
 if __name__ == "__main__":
