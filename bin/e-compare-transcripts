@@ -1,0 +1,97 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Bio::EnsEMBL::Registry;
+use Data::Dumper;
+use Digest::SHA qw(sha1_hex);
+
+my $registry = 'Bio::EnsEMBL::Registry';
+my @refseq_mrna_db_ids = qw(1801);
+
+$registry->load_registry_from_db(
+    -host => 'db-vpn.locusdev.net',
+    -user => 'anonymous'
+);
+
+my $sa = $registry->get_adaptor( 'Human', 'Core', 'Slice' );
+my $ta = $registry->get_adaptor( 'Human', 'Core', 'Transcript' );
+
+my $ofsa = $registry->get_adaptor( 'Human', 'OtherFeatures', 'Slice' );
+my $ofta = $registry->get_adaptor( 'Human', 'OtherFeatures', 'Transcript' );
+
+
+#my @rs_tx = ( $ofta->fetch_by_stable_id('NM_024095.3') );
+# select all NM_ transcripts from otherfeatures
+my @rs_tx = grep { $_->display_id() =~ m/^NM_/ } @{ $ofta->fetch_all() };
+
+printf("# %d transcripts\n",$#rs_tx+1);
+
+foreach my $rs_tx (@rs_tx) {
+  my $rs_ti = tx_info($rs_tx);
+  printf("%1s %-7s %s\n", '*', '', ti_format($rs_ti));
+  my @e_tx = @{ $ta->fetch_all_by_Slice($rs_tx->feature_Slice()) };
+  for my $e_tx (@e_tx) {
+	my $e_ti = tx_info($e_tx->transform('chromosome'));
+
+	# don't bother comparing transcripts that differ by >=25 nt
+	next unless abs($rs_ti->{'length'} - $e_ti->{'length'}) < 25;
+
+	printf("%1s %-7s %s\n", '', ti_cmp($rs_ti,$e_ti), ti_format($e_ti));
+  }
+}
+
+exit(0);
+
+
+sub ti_format {
+  my $ti = shift;
+  return sprintf('%-15s %-15s %12s %12s %5s %2s %5s %10d %10d %5s %s',
+				 @$ti{qw(id gene ccds refseqs chr strand length cds-start cds-end n_exons exons)});
+}
+
+sub ti_cmp {
+  my ($t1,$t2) = @_;
+  join('',
+	   ($t1->{'n_exons'}  == $t2->{'n_exons'}	? '#' : ' '),
+	   ($t1->{'length'}	  == $t2->{'length'}	? 'L' : ' '),
+	   ($t1->{'cds-sha1'} eq $t2->{'cds-sha1'}	? 'C' : ' '),
+	   ($t1->{'exons'}	  eq $t2->{'exons'}		? 'E' : ' '),
+	  )
+}
+
+sub tx_info {
+  my $t = shift;
+  #my @exons_se = map {[$_->start(),$_->end()]} @{ $t->get_all_Exons() };
+  my @exons_se = map {[$_->start(),$_->end()]} map {$_->transform('chromosome')} @{ $t->get_all_Exons() };
+  my $sl =  $t->slice()->name();
+  my ($chr) = $sl =~ m/chromosome:GRCh37:([^:]+):/;
+  die unless defined $chr;					# really?
+  my $g = $t->get_Gene();
+  my $gene_name = $g->display_id();
+  my @dblinks = @{$g->get_all_DBLinks()};	# perhaps empty
+  my $ccds    = join(',',uniq(grep {/^CCDS/} map {$_->display_id()} @dblinks));
+  my $refseqs = join(',',uniq(grep {/^NM/}   map {$_->display_id()} @dblinks));
+  return {
+	#join(',',map {$_->display_id()} @{$t->get_overlapping_Genes()}),
+	#$t->is_canonical(),
+	'id' => $t->display_id(),
+	'chr' => $chr,
+	'gene' => $gene_name,
+	'ccds' => $ccds,
+	'refseqs' => $refseqs,
+	'strand' => $t->strand(),
+	'cds-start' => $t->coding_region_start(),
+	'cds-end' => $t->coding_region_end(),
+	'length' => $t->length(),
+	'n_exons' => $#exons_se+1,
+	'exons' => join(',',map {"[$_->[0],$_->[1]]"} @exons_se),
+	'cds-sha1' => sha1_hex($t->seq()->seq()),
+  };
+}
+
+
+sub uniq {
+  return keys %{{ map {$_=>1} @_ }};
+}

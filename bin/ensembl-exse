@@ -1,0 +1,42 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Bio::EnsEMBL::Registry;
+
+my $registry = 'Bio::EnsEMBL::Registry';
+
+$registry->load_registry_from_db(
+    -host => 'db-vpn.locusdev.net',
+    -user => 'anonymous'
+);
+
+my $ta = $registry->get_adaptor( 'Human', 'Core', 'Transcript' );
+my $sa = $registry->get_adaptor( 'Human', 'Core', 'Slice' );
+
+my $i=0;
+
+foreach my $chr ('Y') { #(1..22, 'X', 'Y') {
+  my $slice = $sa->fetch_by_region('Chromosome',$chr);
+  my @tx = @{ $ta->fetch_all_by_Slice($slice) };
+  foreach my $tx (@tx) {
+	next unless $tx->is_current();
+	my @ex = @{ $tx->get_all_Exons() };
+	my @s = map( {$_->start - 1 } @ex );
+	my @e = map( {$_->end } @ex );
+	print( join("\t",
+				$tx->display_id(),
+				'chr'.$tx->seq_region_name(),
+				($tx->seq_region_strand() == -1 ? '-' : '+'),
+				$tx->seq_region_start()-1,
+				$tx->seq_region_end(),
+				(defined $tx->cdna_coding_start() ? $tx->cdna_coding_start()-1 : ''),
+				$#s+1,
+				join(',',@s), 
+				join(',',@e)),
+		   "\n");
+  }
+}
+
+

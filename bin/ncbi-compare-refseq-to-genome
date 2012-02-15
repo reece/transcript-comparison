@@ -1,0 +1,181 @@
+#!/usr/bin/env python
+#
+
+# TODO: add timing to download and alignment segments
+# TODO: add # splice forms
+
+from __future__ import print_function
+
+import logging, os, pprint, sys, traceback, urllib2
+from collections import defaultdict
+from lxml.etree import XML
+
+from cogent.db.ncbi import EFetch,ELink,ELinkResultParser,ESearch,ESearchResultParser
+from cogent.util.misc import reverse_complement
+from Bio.Emboss.Applications import NeedleCommandline
+from Bio import AlignIO
+from StringIO import StringIO
+
+sys.path[0:0] = [os.path.join(os.path.dirname(
+    os.path.dirname(__file__)),'lib/python')]
+from locus.core.exceptions import LocusError
+from locus.utils.memoize_mongo import memoize
+from locus.ncbi.refseq import RefSeq
+from locus.ncbi.gene import Gene
+
+
+eutils_defaults = {
+    'tool': sys.argv[0],
+    'email': 'reecehart@gmail.com',
+    'retmax': 5,
+    'retmode': 'xml'
+    }
+
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+es = ESearch(rettype='uilist',**eutils_defaults)
+ef = EFetch(**eutils_defaults)
+el = ELink(**eutils_defaults)
+
+
+@memoize
+def esearch_ac(ac):
+    return es.read(term='%s[accn]'%(ac))
+
+@memoize
+def efetch_nuccore_ui(ui):
+    return ef.read(db='nuccore',id=ui,retmode='xml',rettype='gb')
+
+@memoize
+def elink_nucleotide_ui_to_gene(ui):
+    return el.read(dbfrom='nuccore',db='gene',
+                   linkname='nuccore_gene',id=ui)
+
+@memoize
+def efetch_gene_by_gene_id(gene_id):
+    return ef.read(db='gene',id=gene_id)
+
+#@memoize
+def fetch_genomic_sequence_interval(chr,start,end):
+    url = ('http://genome.ucsc.edu/cgi-bin/das/hg19/dna?'
+           'segment=chr{chr}:{start},{end}').format(chr=chr,start=start,end=end)
+    r = XML(urllib2.urlopen(url).read())
+    return r.find('SEQUENCE/DNA').text.replace('\n','')
+
+@memoize
+def align2(seqa,seqb):
+    if seqa == seqb:
+        return seqa,seqb
+    cline = NeedleCommandline(asequence='asis:'+seqa, bsequence='asis:'+seqb,
+                              gapopen=10,gapextend=0.5,auto=True,filter=True,stdout=True)
+    o,e = cline()
+    aln = AlignIO.read(StringIO(o),'emboss')
+    return aln[0].seq.tostring(),aln[1].seq.tostring()
+
+def intervals_to_starts_ends_lengths(exon_intervals):
+    starts = [ e[0] for e in exon_intervals ]
+    ends = [ e[1] for e in exon_intervals ]
+    lengths = [ e[1]-e[0]+1 for e in exon_intervals ]
+    return starts,ends,lengths
+
+def coalesce(*args):
+    return next(s for s in args if s is not None)
+
+def process1(acv):
+    rv = defaultdict(lambda: '')
+    rv.update({ 
+            'ac_status': 'cur',
+            'mismatches': []
+            })
+
+    try:
+        esr = ESearchResultParser( esearch_ac(acv) )
+        if esr.Count == 0:
+            rv['ac_status'] = 'obs'
+            rv['comment'] = 'obsolete refseq'
+            return rv
+        
+        assert esr.Count == 1, "Got more than one uid for %s[accn]: %s"%(
+            acv,pprint.pformat(esr.IdList))
+        rv['ui'] = ui = esr.IdList[0]
+        rs = RefSeq( efetch_nuccore_ui(ui) )
+
+        elr = ELinkResultParser( elink_nucleotide_ui_to_gene(ui) )
+        assert len(elr) == 1, "Got more than one gene for ui="+ui
+        rv['gene_id'] = gene_id = elr[0]
+        g = Gene(efetch_gene_by_gene_id(gene_id))
+        rv['gene'] = g.locus()
+
+        rs_exons = rs.exons()
+        g_exons = g.grch37p5_product_exons(acv)
+        rs_exon_lengths = intervals_to_starts_ends_lengths(rs_exons)[2]
+        g_exon_lengths = intervals_to_starts_ends_lengths(g_exons)[2]
+
+        rv['n_rs_exons'] = len(rs_exon_lengths)
+        rv['n_g_exons'] = len(g_exon_lengths)
+        rv['ex_n_eq'] = len(rs_exon_lengths) == len(g_exon_lengths)
+        rv['ex_len_eq'] = rs_exon_lengths == g_exon_lengths
+
+        m = g.grch37p5_mapping()
+        rv['maploc'] = g.maploc()
+        rv['strand'] = m['strand']
+
+        if not rv['ex_n_eq']:
+            rv['comment'] = 'different number of exons'
+            return rv
+
+        rs_seq = rs.seq()
+        n_tot_snvs = 0
+        n_tot_indels = 0
+        mismatches = []
+        for exon_i in range(len(rs_exons)):
+            rs_start = rs_exons[exon_i][0]
+            rs_end = rs_exons[exon_i][1]
+            rs_ex_seq = rs_seq[rs_start-1:rs_end] # 0-based, half-open
+            g_start = g_exons[exon_i][0]
+            g_end = g_exons[exon_i][1]
+            g_ex_seq = fetch_genomic_sequence_interval(m['chr'],g_start+1,g_end+1)
+            if m['strand'] == 'minus':
+                g_ex_seq = reverse_complement(g_ex_seq)
+            ras,gas = align2(rs_ex_seq,g_ex_seq)
+            assert len(ras)==len(gas), "global alignment should be same length"
+            snvs   = [ i+1 for i in range(len(ras)) if (ras[i]!='-' and gas[i]!='-' and ras[i]!=gas[i]) ]
+            indels = [ i+1 for i in range(len(ras)) if (ras[i]=='-' or  gas[i]=='-') ]
+            if len(snvs)>0 or len(indels)>0:
+                mismatches += ['%s:%s' % (
+                    exon_i+1, ','.join( [str(s)+'S' for s in snvs]+[str(s)+'I' for s in indels] ))]
+            n_tot_snvs += len(snvs)
+            n_tot_indels += len(indels)
+        rv['n_tot_snvs'] = n_tot_snvs
+        rv['n_tot_indels'] = n_tot_indels
+        rv['mismatches'] = mismatches
+    except Exception as e:
+        rv['comment'] = ''.join(traceback.format_exception(type(e),e.message,None))
+        raise
+    return rv
+
+def strand_sign(s):
+    if s == 'plus': return '+'
+    if s == 'minus': return '-'
+    else: return ''
+
+for acv in sys.argv[1:]:
+    rv = process1(acv)
+#    if rv['ac_status'] == 'obs':
+#        print('\t'.join([acv,rv['ac_status'],'#'+rv['comment']]))
+#        continue
+    rv['ss'] = strand_sign(rv['strand']) + rv['maploc']
+    if rv['n_tot_snvs']!='' and rv['n_tot_indels']!='':
+        rv['ex_mm'] = rv['n_tot_snvs']==0 and rv['n_tot_indels']==0
+        rv['mms'] = '%s/%s (%s)' % ( rv['n_tot_snvs'], rv['n_tot_indels'], 
+                                     ';'.join(rv['mismatches']) )
+    if rv['comment']:
+        rv['comment'] = '#' + rv['comment']
+
+    print(
+        '\t'.join( str(e) for e in [ 
+                acv, rv['ac_status'], rv['gene'], rv['ss'], rv['n_rs_exons'],
+                rv['ex_n_eq'], rv['ex_len_eq'],  
+                rv['ex_mm'], 
+                rv['mms'], rv['comment'] ]))

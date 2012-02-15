@@ -1,0 +1,1 @@
+mysql -BN -h db-vpn.locusdev.net -u reece -e 'select refseqs from reece.condition_nms_v where refseqs is not NULL' | tr , \\012 | sort -u >refseqs
