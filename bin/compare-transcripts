@@ -1,6 +1,9 @@
 #!/usr/bin/env perl
 # compare-transcripts -- compare refseq and enst transcripts in Ensembl
 # 2012-02-14 Reece Hart <reecehart@gmail.com>
+#
+# eg$ compare-transcripts 1 2 X Y
+
 
 use strict;
 use warnings;
@@ -13,7 +16,7 @@ my $registry = 'Bio::EnsEMBL::Registry';
 my @refseq_mrna_db_ids = qw(1801);
 
 $registry->load_registry_from_db(
-    -host => 'db-vpn.locusdev.net',
+    -host => 'db-prd.locusdev.net',
     -user => 'anonymous'
 );
 
@@ -23,30 +26,37 @@ my $ta = $registry->get_adaptor( 'Human', 'Core', 'Transcript' );
 my $ofsa = $registry->get_adaptor( 'Human', 'OtherFeatures', 'Slice' );
 my $ofta = $registry->get_adaptor( 'Human', 'OtherFeatures', 'Transcript' );
 
-# fetch all NMs from otherfeatures
-my @rs_tx = grep { $_->display_id() =~ m/^NM_/ } @{ $ofta->fetch_all() };
-printf("# %d transcripts\n",$#rs_tx+1);
 
-# loop over NMs
-foreach my $rs_tx (@rs_tx) {
-  # get info from RefSeq transcript
-  my $rs_ti = tx_info($rs_tx);
-  printf("%1s %-7s %s\n", '*', '', ti_format($rs_ti));
+foreach my $chr (@ARGV) {
+  my $chr_slice = $sa->fetch_by_region('Chromosome',$chr);
 
-  # find all Ensembl transcripts overlapping the refseq feature
-  my @e_tx = @{ $ta->fetch_all_by_Slice($rs_tx->feature_Slice()) };
+  # fetch all NMs from otherfeatures
+  #my @tx = @{ $ofta->fetch_all() };
+  my @tx = @{ $ofta->fetch_all_by_Slice($chr_slice) };
+  my @rs_tx = grep { $_->display_id() =~ m/^NM_/ } @tx;
+  printf("# %d transcripts\n",$#rs_tx+1);
 
-  # loop over ENSTs, comparing each with the RefSeq
-  for my $e_tx (@e_tx) {
-	# get info on transcript, transformed to chromosomal coords
-	# (same as RefSeqs)
-	my $e_ti = tx_info($e_tx->transform('chromosome'));
+  # loop over NMs
+  foreach my $rs_tx (@rs_tx) {
+	# get info from RefSeq transcript
+	my $rs_ti = tx_info($rs_tx);
+	printf("%1s %-7s %s\n", '*', '', ti_format($rs_ti));
 
-	# don't bother comparing transcripts that differ by >=25 nt
-	next unless abs($rs_ti->{'length'} - $e_ti->{'length'}) < 25;
+	# find all Ensembl transcripts overlapping the refseq feature
+	my @e_tx = @{ $ta->fetch_all_by_Slice($rs_tx->feature_Slice()) };
 
-	# print transcript row; ti_cmp prefix is a summary of the comparison
-	printf("%1s %-7s %s\n", '', ti_cmp($rs_ti,$e_ti), ti_format($e_ti));
+	# loop over ENSTs, comparing each with the RefSeq
+	for my $e_tx (@e_tx) {
+	  # get info on transcript, transformed to chromosomal coords
+	  # (same as RefSeqs)
+	  my $e_ti = tx_info($e_tx->transform('chromosome'));
+
+	  # don't bother comparing transcripts that differ by >=25 nt
+	  next unless abs($rs_ti->{'length'} - $e_ti->{'length'}) < 25;
+
+	  # print transcript row; ti_cmp prefix is a summary of the comparison
+	  printf("%1s %-7s %s\n", '', ti_cmp($rs_ti,$e_ti), ti_format($e_ti));
+	}
   }
 }
 
