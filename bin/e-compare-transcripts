@@ -1,4 +1,6 @@
 #!/usr/bin/env perl
+# compare-transcripts -- compare refseq and enst transcripts in Ensembl
+# 2012-02-14 Reece Hart <reecehart@gmail.com>
 
 use strict;
 use warnings;
@@ -21,23 +23,29 @@ my $ta = $registry->get_adaptor( 'Human', 'Core', 'Transcript' );
 my $ofsa = $registry->get_adaptor( 'Human', 'OtherFeatures', 'Slice' );
 my $ofta = $registry->get_adaptor( 'Human', 'OtherFeatures', 'Transcript' );
 
-
-#my @rs_tx = ( $ofta->fetch_by_stable_id('NM_024095.3') );
-# select all NM_ transcripts from otherfeatures
+# fetch all NMs from otherfeatures
 my @rs_tx = grep { $_->display_id() =~ m/^NM_/ } @{ $ofta->fetch_all() };
-
 printf("# %d transcripts\n",$#rs_tx+1);
 
+# loop over NMs
 foreach my $rs_tx (@rs_tx) {
+  # get info from RefSeq transcript
   my $rs_ti = tx_info($rs_tx);
   printf("%1s %-7s %s\n", '*', '', ti_format($rs_ti));
+
+  # find all Ensembl transcripts overlapping the refseq feature
   my @e_tx = @{ $ta->fetch_all_by_Slice($rs_tx->feature_Slice()) };
+
+  # loop over ENSTs, comparing each with the RefSeq
   for my $e_tx (@e_tx) {
+	# get info on transcript, transformed to chromosomal coords
+	# (same as RefSeqs)
 	my $e_ti = tx_info($e_tx->transform('chromosome'));
 
 	# don't bother comparing transcripts that differ by >=25 nt
 	next unless abs($rs_ti->{'length'} - $e_ti->{'length'}) < 25;
 
+	# print transcript row; ti_cmp prefix is a summary of the comparison
 	printf("%1s %-7s %s\n", '', ti_cmp($rs_ti,$e_ti), ti_format($e_ti));
   }
 }
@@ -48,7 +56,7 @@ exit(0);
 sub ti_format {
   my $ti = shift;
   return sprintf('%-15s %-15s %12s %12s %5s %2s %5s %10d %10d %5s %s',
-				 @$ti{qw(id gene ccds refseqs chr strand length cds-start cds-end n_exons exons)});
+				 @$ti{qw(id gene ccds refseq chr strand length cds-start cds-end n_exons exons)});
 }
 
 sub ti_cmp {
@@ -71,16 +79,14 @@ sub tx_info {
   my $g = $t->get_Gene();
   my $gene_name = $g->display_id();
   my @dblinks = @{$g->get_all_DBLinks()};	# perhaps empty
-  my $ccds    = join(',',uniq(grep {/^CCDS/} map {$_->display_id()} @dblinks));
-  my $refseqs = join(',',uniq(grep {/^NM/}   map {$_->display_id()} @dblinks));
+  my $ccds   = join(',',uniq(grep {/^CCDS/} map {$_->display_id()} @dblinks));
+  my $refseq = join(',',uniq(grep {/^NM/}   map {$_->display_id()} @dblinks));
   return {
-	#join(',',map {$_->display_id()} @{$t->get_overlapping_Genes()}),
-	#$t->is_canonical(),
 	'id' => $t->display_id(),
 	'chr' => $chr,
 	'gene' => $gene_name,
 	'ccds' => $ccds,
-	'refseqs' => $refseqs,
+	'refseq' => $refseq,
 	'strand' => $t->strand(),
 	'cds-start' => $t->coding_region_start(),
 	'cds-end' => $t->coding_region_end(),
