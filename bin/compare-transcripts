@@ -50,7 +50,7 @@ foreach my $chr (@ARGV) {
   # fetch all NMs from otherfeatures
   #my @tx = @{ $ofta->fetch_all() };
   my @tx = @{ $ofta->fetch_all_by_Slice($chr_slice) };
-  my @rs_tx = grep { $_->display_id() =~ m/^NM_/ } @tx;
+  my @rs_tx = grep { $_->display_id() =~ m/^NM_\d+\.\d+/ } @tx;
   printf("# %d transcripts\n",$#rs_tx+1);
 
   # loop over NMs
@@ -68,8 +68,12 @@ foreach my $chr (@ARGV) {
       # (same as RefSeqs)
       my $e_ti = tx_info($e_tx->transform('chromosome'));
 
-      # don't bother comparing transcripts that differ by >=10 nt
-      next unless abs($rs_ti->{'cds-length'} - $e_ti->{'cds-length'}) < 10;
+      # don't bother comparing transcripts that differ by >10 nt
+      next if abs($rs_ti->{'cds-length'} - $e_ti->{'cds-length'}) > 10;
+
+	  # skip if transcripts don't match either cds or exon structure
+	  next unless ($rs_ti->{'cds-sha1'} eq $e_ti->{'cds-sha1'}
+					 or $rs_ti->{'cds-exons'} eq $e_ti->{'cds-exons'});
 
       # print transcript row; ti_cmp prefix is a summary of the comparison
       printf("%1s %-7s %s\n", '', ti_cmp($rs_ti,$e_ti), ti_format($e_ti));
@@ -90,13 +94,10 @@ sub ti_format {
 sub ti_cmp {
   my ($t1,$t2) = @_;
   join('',
-       #($t1->{'n-exons'}     == $t2->{'n-exons'}     ? 'N' : ' '),
-       ($t1->{'n-cds-exons'} == $t2->{'n-cds-exons'} ? 'n' : ' '),
        ($t1->{'cds-length'}  == $t2->{'cds-length'}  ? 'L' : ' '),
+       ($t1->{'n-cds-exons'} == $t2->{'n-cds-exons'} ? 'N' : ' '),
+       ($t1->{'cds-exons'}   eq $t2->{'cds-exons'}   ? 'E' : ' '),
        ($t1->{'cds-sha1'}    eq $t2->{'cds-sha1'}    ? 'C' : ' '),
-       #($t1->{'exons'}       eq $t2->{'exons'}       ? 'E' : ' '),
-       ($t1->{'cds-exons'}   eq $t2->{'cds-exons'}   ? 'e' : ' '),
-       ($t1->{'strand'}      eq $t2->{'strand'}      ? 'S' : ' '), # better be! sanity check
       )
 }
 
