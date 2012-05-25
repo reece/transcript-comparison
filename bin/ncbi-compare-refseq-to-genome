@@ -64,12 +64,19 @@ def elink_nucleotide_ui_to_gene(ui):
 def efetch_gene_by_gene_id(gene_id):
     return ef.read(db='gene',id=gene_id)
 
-@memoize
+
 def fetch_genomic_sequence_interval(chr,start,end):
+    if False:
+        return fetch_genomic_sequence_interval_ensembl(chr,start,end)
+    return fetch_genomic_sequence_interval_ucsc(chr,start,end)
+
+@memoize
+def fetch_genomic_sequence_interval_ucsc(chr,start,end):
     url = ('http://genome.ucsc.edu/cgi-bin/das/hg19/dna?'
            'segment=chr{chr}:{start},{end}').format(chr=chr,start=start,end=end)
     r = XML(urllib2.urlopen(url).read())
     return r.find('SEQUENCE/DNA').text.replace('\n','')
+
 
 @memoize
 def align2(seqa,seqb):
@@ -175,6 +182,14 @@ def process1(acv):
                                  for i in snvs + indels ]
                 rs_ex_coords += [ '%s:c.%s' % (acv,rs_ex_cum_len + i + 1) 
                                   for i in snvs + indels ]
+                if len(indels) > 0:
+                    for k,v in [ 
+                        ('ruler', ''.join([ '%9d|'%(i*10) for i in range(1,400)])),
+                        ('g_ex_seq', g_ex_seq),
+                        ('rs_ex_seq', rs_ex_seq),
+                        ('gas', gas), 
+                        ('ras', ras) ]:
+                        print( '%16s: %s' % (k,v) )
 
             n_tot_snvs += len(snvs)
             n_tot_indels += len(indels)
@@ -185,8 +200,8 @@ def process1(acv):
         rv['g_ex_coords'] = g_ex_coords
         rv['rs_ex_coords'] = rs_ex_coords
     except Exception as e:
-        rv['comment'] = ''.join(traceback.format_exception(type(e),e.message,None))
-        raise
+        rv['comment'] = (''.join(traceback.format_exception(type(e),e.message,None))).rstrip()
+        return rv
     return rv
 
 
