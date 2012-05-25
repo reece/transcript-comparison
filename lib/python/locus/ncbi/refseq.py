@@ -1,14 +1,24 @@
 from lxml.etree import XML
+import IPython
 
 class RefSeq(object):
     def __init__(self,xml):
         self._root = XML(xml)
 
-    def cds_start(self):
-        n = r._root.xpath('/GBSet/GBSeq/GBSeq_feature-table/GBFeature[GBFeature_key="CDS"]')
-        assert len(n) == 0
+    def cds_start_end(self):
+        n = self._root.xpath('/GBSet/GBSeq/GBSeq_feature-table/GBFeature[GBFeature_key/text()="CDS"]')
+        assert len(n) == 1, "expected exactly one CDS GBFeature_key node"
         s,e = _feature_se(n[0])
-        return s
+        return s,e
+
+    def cds_start(self):
+        return self.cds_start_end()[0]
+
+    def chr(self):
+        return self._root.xpath('/GBSet/GBSeq/GBSeq_feature-table/GBFeature['
+                                'GBFeature_key/text()="source"]/GBFeature_quals'
+                                '/GBQualifier[GBQualifier_name/text()='
+                                '"chromosome"]/GBQualifier_value')[0].text
 
     def exons(self):
         exon_nodes = self._root.xpath('/GBSet/GBSeq/GBSeq_feature-table/GBFeature[GBFeature_key="exon"]')

@@ -12,7 +12,7 @@ import hashlib, logging, os, pickle, pymongo, sys
 
 from mongo_cache import mongo_cache
 
-mongo_host = os.environ.get('MONGO_HOST') or 'db-prd.locusdev.net'
+mongo_host = os.environ.get('MONGO_HOST') or 'db.locusdev.net'
 conn = pymongo.Connection(host=mongo_host)
 
 class memoize(object):
@@ -23,7 +23,7 @@ class memoize(object):
     
     def __init__(self, func):
         self._func = func
-        self._cache = mongo_cache(conn,'memoize',func.func_name)
+        self._cache = mongo_cache(conn,'memoize2',func.func_name)
         logging.info('opened mongo cache for %s (%s)' % (self._func.func_name,self._cache))
 
     def compute_key(self,args,kw):
