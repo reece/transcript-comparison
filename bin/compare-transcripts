@@ -50,7 +50,7 @@ foreach my $chr (@ARGV) {
   # fetch all NMs from otherfeatures
   #my @tx = @{ $ofta->fetch_all() };
   my @tx = @{ $ofta->fetch_all_by_Slice($chr_slice) };
-  my @rs_tx = grep { $_->display_id() =~ m/^NM_\d+\.\d+/ } @tx;
+  my @rs_tx = grep { $_->display_id() =~ m/^NM_\d+\.\d+$/ } @tx;
   printf("# %d transcripts\n",$#rs_tx+1);
 
   # loop over NMs

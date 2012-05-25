@@ -2,12 +2,12 @@
 # refseq-exse -- get exon start,end list from ucsc
 
 mysql -qB -h genome-mysql.cse.ucsc.edu -u genome -D hg19 <<EOF
-SELECT CONCAT(acc,'.',version) AS ac,chrom,strand,txStart,txEnd,
+SELECT CONCAT(GBmrna.acc,'.',GBmrna.version) AS mrna_acc,CONCAT(protAcc,'.',GBprot.version) AS prot_acc,chrom,strand,txStart,txEnd,
    (case when cdsStart=cdsEnd then '' else cdsStart end),exonCount,exonStarts,exonEnds
 FROM refFlat RF
-JOIN gbSeq GB ON RF.name=GB.acc
-WHERE chrom REGEXP 'chrY'
-ORDER BY chrom,txStart
+JOIN refLink RL on RF.name=RL.mrnaAcc
+JOIN gbSeq GBmrna ON RF.name=GBmrna.acc
+JOIN gbSeq GBprot ON RL.protAcc=GBprot.acc
+WHERE chrom REGEXP 'chr([XY]|[0-9]+)\$' AND GBmrna.acc like 'NM_%'
+ORDER BY chrom,txStart,GBmrna.acc
 EOF
-
-#'chr([XY]|[0-9]+)\$'
