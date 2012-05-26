@@ -3,6 +3,8 @@
 .DELETE_ON_ERROR:
 SHELL:=/bin/bash
 
+N:=100
+
 VIRTUALENV_DIR:=ve
 export PYTHONUNBUFFERED:=1
 export PYTHONPATH:=${HOME}/projects/locus-python/lib
@@ -36,8 +38,13 @@ all: human.rna.fna.gz
 %.cmp: %
 	xargs <$< ./bin/ncbi-compare-refseq-to-genome >$@ 2>$@.log
 
-all.cmp: all.d/log
-	sort $(addsuffix .cmp,$(wildcard ${<D}/??.cmp)) -o $@
+#ALLCMP=$(foreach i,$(shell seq 1 $N),all.d/$i-$N.cmp)
+ALLCMP=$(shell perl -le 'printf("all.d/%03d-$N.cmp ",$$_) for 1..$N')
+all.d/%-${N}: all
+	@mkdir -p ${@D}
+	fpart -N ${N} -n $* <$< >$@
+all.cmp: ${ALLCMP}
+	sort $^ -o $@
 
 
 transcripts.tsv: all.cmp
