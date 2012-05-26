@@ -8,7 +8,9 @@
 # http://code.activestate.com/recipes/498110-memoize-decorator-with-o1-length-limited-lru-cache/
 # Expert Python Programming p. 52
 
-import hashlib, logging, os, pickle, pymongo, sys
+import getpass, hashlib, logging, os, pickle, pymongo, sys
+
+memoize_db_name = 'memoize-' + getpass.getuser()
 
 from mongo_cache import mongo_cache
 
@@ -23,7 +25,7 @@ class memoize(object):
     
     def __init__(self, func):
         self._func = func
-        self._cache = mongo_cache(conn,'memoize2',func.func_name)
+        self._cache = mongo_cache(conn,memoize_db_name,func.func_name)
         logging.info('opened mongo cache for %s (%s)' % (self._func.func_name,self._cache))
 
     def compute_key(self,args,kw):

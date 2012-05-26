@@ -24,7 +24,7 @@ import bitlyapi
 sys.path[0:0] = [os.path.join(os.path.dirname(
     os.path.dirname(__file__)),'lib/python')]
 from locus.core.exceptions import LocusError
-from locus.utils.memoize_dbm import memoize
+from locus.utils.memoize_mongo import memoize
 from locus.ncbi.refseq import RefSeq
 from locus.ncbi.gene import Gene
 
@@ -75,7 +75,7 @@ def efetch_gene_by_gene_id(gene_id):
 def fetch_genomic_sequence_interval(chr,start,end):
     if False:
         return fetch_genomic_sequence_interval_ensembl(chr,start,end)
-    return fetch_genomic_sequence_interval_ucsc(chr,start,end)
+    return str(fetch_genomic_sequence_interval_ucsc(chr,start,end))
 
 @memoize
 def fetch_genomic_sequence_interval_ucsc(chr,start,end):
@@ -160,7 +160,8 @@ def process1(acv):
         g_ex_dir = 1 if m['strand'] == 'plus' else -1
 
         n_tot_snvs = 0
-        n_tot_indels = 0
+        n_tot_ins = 0
+        n_tot_dels = 0
         mismatches = []
         g_ex_coords = []
         rs_ex_coords = []
@@ -176,36 +177,39 @@ def process1(acv):
             g_ex_seq = fetch_genomic_sequence_interval(m['chr'],g_ex_start+1,g_ex_end+1)
             if m['strand'] == 'minus':
                 g_ex_seq = reverse_complement(g_ex_seq)
-
             ras,gas = align2b(rs_ex_seq,g_ex_seq)
             assert len(ras)==len(gas), "global alignment should be same length"
-            snvs   = [ i for i in range(len(ras)) if (ras[i]!='-' and gas[i]!='-' and ras[i]!=gas[i]) ]
-            indels = [ i for i in range(len(ras)) if (ras[i]=='-' or  gas[i]=='-') ]
-            if len(snvs)>0 or len(indels)>0:
+            snvs = [ i for i in range(len(ras)) if (gas[i]!='-' and ras[i]!='-' and gas[i]!=ras[i]) ]
+            dels = [ i for i in range(len(ras)) if (gas[i]!='-' and ras[i]=='-' ) ] # del wrt tx
+            ins  = [ i for i in range(len(ras)) if (gas[i]=='-' and ras[i]!='-' ) ] # ins wrt tx
+            if len(snvs)>0 or len(dels)>0 or len(ins)>0:
                 mismatches += ['%s:%s' % ( exon_i+1, 
-                                           ','.join( [str(s+1)+'S' for s in snvs] 
-                                                     + [str(s+1)+'I' for s in indels]
+                                           ','.join(   [str(s+1)+'S' for s in snvs] 
+                                                     + [str(s+1)+'I' for s in ins ]
+                                                     + [str(s+1)+'D' for s in dels]
                                                      ))]
                 g_ex_off = g_ex_start if m['strand'] == 'plus' else g_ex_end
-                g_pos = [ g_ex_off + i*g_ex_dir + 1 for i in snvs + indels ]
+                g_pos = [ g_ex_off + i*g_ex_dir + 1 for i in snvs + ins + dels ]
                 g_ex_coords += [ 'chr%s:g.%s' % (m['chr'], gp) for gp in g_pos ]
                 g_urls += [ url_for_slice(m['chr'],gp-50,gp+50) for gp in g_pos ]
                 rs_ex_coords += [ '%s:c.%s' % (acv,cdot(cds_start,cds_end,rs_ex_cum_len,i))
-                                  for i in snvs + indels ]
-                if len(indels) > 0:
-                    for k,v in [ 
-                        ('ruler', ''.join([ '%9d|'%(i*10) for i in range(1,400)])),
-                        ('g_ex_seq', g_ex_seq),
-                        ('rs_ex_seq', rs_ex_seq),
-                        ('gas', gas), 
-                        ('ras', ras) ]:
-                        print( '%16s: %s' % (k,v) )
+                                  for i in snvs + ins + dels ]
+                #if len(indels) > 0:
+                #    for k,v in [ 
+                #        ('ruler', ''.join([ '%9d|'%(i*10) for i in range(1,400)])),
+                #        ('g_ex_seq', g_ex_seq),
+                #        ('rs_ex_seq', rs_ex_seq),
+                #        ('gas', gas), 
+                #        ('ras', ras) ]:
+                #        print( '%16s: %s' % (k,v) )
 
             n_tot_snvs += len(snvs)
-            n_tot_indels += len(indels)
+            n_tot_ins += len(ins)
+            n_tot_dels += len(dels)
             rs_ex_cum_len += len(rs_ex_seq)
         rv['n_tot_snvs'] = n_tot_snvs
-        rv['n_tot_indels'] = n_tot_indels
+        rv['n_tot_ins'] = n_tot_ins
+        rv['n_tot_dels'] = n_tot_dels
         rv['mismatches'] = mismatches
         rv['g_ex_coords'] = g_ex_coords
         rv['rs_ex_coords'] = rs_ex_coords
@@ -223,6 +227,7 @@ def cdot(cds_start,cds_end,rs_ex_cum_len,r):
     else:
         return str(c+1)
 
+@memoize
 def url_for_slice(c,s,e):
     url_fmt = (
         'http://www.ncbi.nlm.nih.gov/projects/sviewer/?id={nc}'
@@ -261,10 +266,10 @@ for acv in sys.argv[1:]:
 #        print('\t'.join([acv,rv['ac_status'],'#'+rv['comment']]))
 #        continue
     rv['ss'] = strand_sign(rv['strand']) + rv['maploc']
-    if rv['n_tot_snvs']!='' and rv['n_tot_indels']!='':
-        rv['ex_mm'] = rv['n_tot_snvs']==0 and rv['n_tot_indels']==0
-        rv['mms'] = '%s/%s (%s)' % ( rv['n_tot_snvs'], rv['n_tot_indels'], 
-                                     ';'.join(rv['mismatches']) )
+    if rv['n_tot_snvs']!='' and rv['n_tot_ins']!='' and rv['n_tot_dels']!='':
+        rv['ex_mm'] = rv['n_tot_snvs']==0 and rv['n_tot_ins']==0 and rv['n_tot_dels']==0 
+    rv['mms'] = '%s/%s/%s (%s)' % ( rv['n_tot_snvs'], rv['n_tot_ins'], rv['n_tot_dels'], 
+                                    ';'.join(rv['mismatches']) )
     if rv['comment']:
         rv['comment'] = '#' + rv['comment']
 

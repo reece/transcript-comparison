@@ -8,6 +8,8 @@
 # http://code.activestate.com/recipes/498110-memoize-decorator-with-o1-length-limited-lru-cache/
 # Expert Python Programming p. 52
 
+memoize_dir = '/tmp/memoize'
+
 import atexit, hashlib, logging, os, pickle, shelve, sys
 
 class memoize(object):
@@ -19,7 +21,7 @@ class memoize(object):
     
     def __init__(self, func):
         self._func = func
-        dir= os.path.expanduser('~/tmp/memoize')
+        dir= os.path.expanduser(memoize_dir)
         if not os.path.exists(dir):
             os.mkdir(dir,0700)                      # Is there a EAFP way to do this?
         cache_fn = os.path.join(dir,'%s.cache' % self._func.func_name)
