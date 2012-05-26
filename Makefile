@@ -15,11 +15,11 @@ install-reqs: etc/reqs.pip ${VIRTUALENV_DIR}
 	${VIRTUALENV_DIR}/bin/pip install -r $<
 
 
-/tmp/human.rna.fna.gz:
+human.rna.fna.gz:
 	curl ftp://ftp.ncbi.nlm.nih.gov/refseq/H_sapiens/mRNA_Prot/human.rna.fna.gz >'$@.tmp' \
 	&& mv -fv '$@.tmp' '$@'
 
-all: #/tmp/human.rna.fna.gz
+all: human.rna.fna.gz
 	gzip -cd <$< | perl -lne 'print $$& if m/NM_\d+\.\d+/' | sort >$@
 
 %.dup: %
@@ -30,7 +30,7 @@ all: #/tmp/human.rna.fna.gz
 	split -l 100 $< $@/
 
 %.d/log: %.d
-	make $(addsuffix .cmp,$(wildcard $</??))
+	make -j4 $(addsuffix .cmp,$(wildcard $</??))
 
 .SECONDARY: %.cmp
 %.cmp: %

@@ -19,6 +19,7 @@ from Bio.Emboss.Applications import NeedleCommandline
 from Bio import AlignIO
 from StringIO import StringIO
 import nwalign
+import bitlyapi
 
 sys.path[0:0] = [os.path.join(os.path.dirname(
     os.path.dirname(__file__)),'lib/python')]
@@ -34,6 +35,12 @@ eutils_defaults = {
     'retmax': 5,
     'retmode': 'xml'
     }
+
+
+bitly = bitlyapi.BitLy(
+    'locusdevelopment',
+    'R_a1e659c6d003a59a55e280eda8480564'
+    )
 
 logging.basicConfig(level=logging.WARN)
 
@@ -157,7 +164,9 @@ def process1(acv):
         mismatches = []
         g_ex_coords = []
         rs_ex_coords = []
-        rs_ex_cum_len = -(rs.cds_start() - 1) # cumulative length from cds start
+        g_urls = []
+        rs_ex_cum_len = 0       # cumulative length from cds start
+        cds_start,cds_end = rs.cds_start_end()
         for exon_i in range(len(rs_exons)):
             rs_ex_start = rs_exons[exon_i][0]
             rs_ex_end = rs_exons[exon_i][1]
@@ -178,9 +187,10 @@ def process1(acv):
                                                      + [str(s+1)+'I' for s in indels]
                                                      ))]
                 g_ex_off = g_ex_start if m['strand'] == 'plus' else g_ex_end
-                g_ex_coords += [ 'chr%s:g.%s' % (m['chr'], g_ex_off + i*g_ex_dir + 1)
-                                 for i in snvs + indels ]
-                rs_ex_coords += [ '%s:c.%s' % (acv,rs_ex_cum_len + i + 1) 
+                g_pos = [ g_ex_off + i*g_ex_dir + 1 for i in snvs + indels ]
+                g_ex_coords += [ 'chr%s:g.%s' % (m['chr'], gp) for gp in g_pos ]
+                g_urls += [ url_for_slice(m['chr'],gp-50,gp+50) for gp in g_pos ]
+                rs_ex_coords += [ '%s:c.%s' % (acv,cdot(cds_start,cds_end,rs_ex_cum_len,i))
                                   for i in snvs + indels ]
                 if len(indels) > 0:
                     for k,v in [ 
@@ -199,11 +209,46 @@ def process1(acv):
         rv['mismatches'] = mismatches
         rv['g_ex_coords'] = g_ex_coords
         rv['rs_ex_coords'] = rs_ex_coords
+        rv['g_urls'] = g_urls
+        rv['cds'] = 'c.'+'_'.join([ str(p) for p in rs.cds_start_end()[:] ])
     except Exception as e:
         rv['comment'] = (''.join(traceback.format_exception(type(e),e.message,None))).rstrip()
         return rv
     return rv
 
+def cdot(cds_start,cds_end,rs_ex_cum_len,r):
+    c = r - (cds_start-1) + rs_ex_cum_len
+    if c > cds_end:
+        return '*' + str(r-(cds_end-1)+1)
+    else:
+        return str(c+1)
+
+def url_for_slice(c,s,e):
+    url_fmt = (
+        'http://www.ncbi.nlm.nih.gov/projects/sviewer/?id={nc}'
+        '&noslider=1&tracks=[key:sequence_track,name:Sequence,'
+        'display_name:Sequence,category:Sequence,annots:Sequence'
+        ',ShowLabel:false][key:gene_model_track,name:Genes---Unnamed'
+        ',display_name:Genes,category:Genes,annots:Unnamed,Options'
+        ':MergeAll,SNPs:false,CDSProductFeats:false,'
+        'ShowLabelsForAllFeatures:false,HighlightMode:2][key:'
+        'alignment_track,name:Alignments---NG%20Alignments,'
+        'display_name:NG%20Alignments,category:Alignments,'
+        'annots:NG%20Alignments,Layout:Adaptive1000,StatDisplay'
+        ':-1,LinkMatePairAligns:true,Color:true,AlignedSeqFeats'
+        ':false,Label:true][key:alignment_track,name:Alignments'
+        '---Refseq%20Alignments,display_name:Refseq%20Alignments'
+        ',category:Alignments,annots:Refseq%20Alignments,Layout'
+        ':Adaptive1000,StatDisplay:-1,LinkMatePairAligns:true'
+        ',Color:true,AlignedSeqFeats:false,Label:true]&mk=&color'
+        '=0&label=0&decor=0&spacing=0&v={start}:{end}&c='
+        '33cccc&gflip=false&select='
+        'gi|224589812-0390e571-039b5700-0103-dee8c202-ffea8d58'
+        )
+
+    url = url_fmt.format(nc='NC_%06d'%int(c),  start=str(s), end=str(e))
+    res = bitly.shorten(longUrl=url)
+    return res['url']
 
 def strand_sign(s):
     if s == 'plus': return '+'
@@ -225,11 +270,13 @@ for acv in sys.argv[1:]:
 
     print(
         '\t'.join( str(e) for e in [ 
-                acv, rv['ac_status'], rv['gene'], rv['ss'], rv['n_rs_exons'],
+                acv, rv['ac_status'], rv['gene'],  rv['cds'], 
+                rv['ss'], rv['n_rs_exons'],
                 rv['ex_n_eq'], rv['ex_len_eq'],  
                 rv['ex_mm'], 
                 rv['mms'], 
                 rv['comment'],
                 ','.join(rv['g_ex_coords']),
                 ','.join(rv['rs_ex_coords']),
+                ' '.join(rv['g_urls']),
                 ]))
