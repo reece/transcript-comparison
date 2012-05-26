@@ -1,8 +1,6 @@
 import logging
 from lxml.etree import XML
 
-from locus.core.exceptions import LocusError
-
 class Gene(object):
     def __init__(self,xml):
         self._root = XML(xml)
@@ -66,7 +64,7 @@ class Gene(object):
         xpath = 'Gene-commentary_products/Gene-commentary[%s]' % (pred)
         nodes = gc.xpath(xpath)
         if len(nodes) != 1:
-            raise LocusError("Got %d Gene-commentary_products for %s"%(len(nodes),acv))
+            raise RuntimeError("Got %d Gene-commentary_products for %s"%(len(nodes),acv))
         return nodes[0]
         
     def _grch37p5_gc(self):

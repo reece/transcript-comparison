@@ -54,22 +54,38 @@ Mismatch = namedtuple('Mismatch', [
         'ex_i', 'e_start', 'e_ex_end', 'e_aseq'
         ])
 
-@memoize
-def esearch_ac(ac):
-    return es.read(term='%s[accn]'%(ac))
+# I got truncated replies from NCBI
+# These got memoized
+# Here's how I deleted them:
+# $ mongo db.locusdev.net/memoize-reece
+# > db.esearch_ac.remove( {$where: "this.value.indexOf('</eSearchResult>') == -1 "} );
+# > db.efetch_nuccore_ui.remove( {$where: "this.value.indexOf('</GBSet>') == -1 "} );
+# > db.efetch_gene_by_gene_id.remove( {$where: "this.value.indexOf('</Entrezgene-Set>') == -1 "} );
+# And then I added assertions to validate the return before they're memoized
 
 @memoize
-def efetch_nuccore_ui(ui):
-    return ef.read(db='nuccore',id=ui,retmode='xml',rettype='gb')
+def esearch_ac(ac):
+    xml = es.read(term='%s[accn]'%(ac))
+    assert '</eSearchResult>' in xml, "received malformed reply from NCBI"
+    return xml
 
 @memoize
 def elink_nucleotide_ui_to_gene(ui):
-    return el.read(dbfrom='nuccore',db='gene',
-                   linkname='nuccore_gene',id=ui)
+    xml = el.read(dbfrom='nuccore',db='gene',linkname='nuccore_gene',id=ui)
+    assert '</eLinkResult>' in xml, "received malformed reply from NCBI"
+    return xml
+
+@memoize
+def efetch_nuccore_ui(ui):
+    xml = ef.read(db='nuccore',id=ui,retmode='xml',rettype='gb')
+    assert '</GBSet>' in xml, "received malformed reply from NCBI"
+    return xml
 
 @memoize
 def efetch_gene_by_gene_id(gene_id):
-    return ef.read(db='gene',id=gene_id)
+    xml = ef.read(db='gene',id=gene_id)
+    assert '</Entrezgene-Set>' in xml, "received malformed reply from NCBI"
+    return xml
 
 
 def fetch_genomic_sequence_interval(chr,start,end):
@@ -214,8 +230,8 @@ def process1(acv):
         rv['g_ex_coords'] = g_ex_coords
         rv['rs_ex_coords'] = rs_ex_coords
         rv['g_urls'] = g_urls
-        rv['cds'] = 'c.'+'_'.join([ str(p) for p in rs.cds_start_end()[:] ])
-    except Exception as e:
+        rv['cds'] = '-'.join([ str(p) for p in rs.cds_start_end()[:] ])
+    except RuntimeError as e:
         rv['comment'] = (''.join(traceback.format_exception(type(e),e.message,None))).rstrip()
         return rv
     return rv
@@ -273,15 +289,14 @@ for acv in sys.argv[1:]:
     if rv['comment']:
         rv['comment'] = '#' + rv['comment']
 
-    print(
-        '\t'.join( str(e) for e in [ 
+    print('* ', '\t'.join( str(e) for e in [ 
                 acv, rv['ac_status'], rv['gene'],  rv['cds'], 
                 rv['ss'], rv['n_rs_exons'],
                 rv['ex_n_eq'], rv['ex_len_eq'],  
                 rv['ex_mm'], 
                 rv['mms'], 
                 rv['comment'],
-                ','.join(rv['g_ex_coords']),
-                ','.join(rv['rs_ex_coords']),
-                ' '.join(rv['g_urls']),
                 ]))
+    for g,r,u in zip(rv['g_ex_coords'], rv['rs_ex_coords'], rv['g_urls']):
+        print( '\t'.join( [g,r,u] ) )
+ 
