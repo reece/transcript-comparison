@@ -165,7 +165,7 @@ def process1(acv):
         rv['ex_len_eq'] = rs_exon_lengths == g_exon_lengths
 
         m = g.grch37p5_mapping()
-        rv['maploc'] = g.maploc()
+        rv['maploc'] = g.maploc() if g.maploc() is not None else ''
         rv['strand'] = m['strand']
 
         if not rv['ex_n_eq']:
