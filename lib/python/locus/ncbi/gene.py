@@ -10,10 +10,16 @@ class Gene(object):
         return self._root.xpath('/Entrezgene-Set/Entrezgene/Entrezgene_gene/Gene-ref/Gene-ref_locus/text()')[0]
 
     def desc(self):
-        return self._root.xpath('/Entrezgene-Set/Entrezgene/Entrezgene_gene/Gene-ref/Gene-ref_desc/text()')[0]
+        try:
+            return self._root.xpath('/Entrezgene-Set/Entrezgene/Entrezgene_gene/Gene-ref/Gene-ref_desc/text()')[0]
+        except:
+            return None
 
     def maploc(self):
-        return self._root.xpath('/Entrezgene-Set/Entrezgene/Entrezgene_gene/Gene-ref/Gene-ref_maploc/text()')[0]
+        try:
+            return self._root.xpath('/Entrezgene-Set/Entrezgene/Entrezgene_gene/Gene-ref/Gene-ref_maploc/text()')[0]
+        except:
+            return None
 
     def summary(self):
         return self._root.xpath('/Entrezgene-Set/Entrezgene/Entrezgene_summary/text()')[0]
