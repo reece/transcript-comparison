@@ -50,13 +50,26 @@ ef = EFetch(**eutils_defaults)
 el = ELink(**eutils_defaults)
 
 
-Mismatch = namedtuple('Mismatch', [
-        'g_start', 'g_ex_end', 'g_aseq',
-        'ex_i', 'e_start', 'e_ex_end', 'e_aseq'
+_Mismatch = namedtuple('Mismatch', [
+        'chr', 'strand', 'g_start', 'g_end', 'g_aseq',
+        'ac', 'exon', 'e_start', 'e_end',
+        't_start', 't_end', 't_aseq',
+        'c_start', 'c_end',
+        'type', 
         ])
+class Mismatch(_Mismatch):
+    @property
+    def seqviewer_url(self):
+        return url_for_slice(self.chr, self.g_start - 50, self.g_end + 50)
+    @property
+    def hgvs_range(self):
+        r = self.ac + ':c.' + self.c_start
+        if self.c_start != self.c_end:
+            r += '_' + self.c_end
+        return r
 
-# I got truncated replies from NCBI
-# These got memoized
+
+# I got truncated replies from NCBI. They got memoized. 
 # Here's how I deleted them:
 # $ mongo db.locusdev.net/memoize-reece
 # > db.esearch_ac.remove( {$where: "this.value.indexOf('</eSearchResult>') == -1 "} );
@@ -102,7 +115,6 @@ def fetch_genomic_sequence_interval_ucsc(chr,start,end):
     return r.find('SEQUENCE/DNA').text.replace('\n','')
 
 
-@memoize
 def align2(seqa,seqb):
     if seqa == seqb:
         return seqa,seqb
@@ -111,6 +123,20 @@ def align2(seqa,seqb):
     o,e = cline()
     aln = AlignIO.read(StringIO(o),'emboss')
     return aln[0].seq.tostring(),aln[1].seq.tostring()
+
+# warning: apparent bug:
+# In [31]: bseq = 'acagagccattaatcttgtagcttcatcaacattaactggtttgctttcatgacgctgctgaggaat'; 
+# l2 = (len(bseq)-6)/2; aseq = bseq[:l2] + bseq[-l2:]
+# 
+# In [32]: align2(aseq,bseq)
+# Out[32]: 
+# [u'acagagccattaatcttgtagcttcatcaa-------tggtttgctttcatgacgctgctgaggaat',
+#  u'acagagccattaatcttgtagcttcatcaacattaactggtttgctttcatgacgctgctgaggaat']
+# 
+# In [33]: align2b(aseq,bseq)
+# Out[33]: 
+# ('acagagccattaatcttgtagcttcat---c---aa-tggtttgctttcatgacgctgctgaggaat',
+#  'acagagccattaatcttgtagcttcatcaacattaactggtttgctttcatgacgctgctgaggaat')
 
 def align2b(seqa,seqb):
     if seqa == seqb:
@@ -129,7 +155,7 @@ def coalesce(*args):
 
 def process1(acv):
     """acv == ACcession.Version string"""
-    rv = defaultdict(lambda: '')
+    rv = {}
     rv.update({ 
             'ac_status': 'cur',
             'mismatches': []
@@ -144,101 +170,103 @@ def process1(acv):
             return rv
         assert esr.Count == 1, "Got more than one uid for %s[accn]: %s"%(
             acv,pprint.pformat(esr.IdList))
-        rv['ui'] = ui = esr.IdList[0]
-
+        ui = esr.IdList[0]
         rs = RefSeq( efetch_nuccore_ui(ui) )
 
         elr = ELinkResultParser( elink_nucleotide_ui_to_gene(ui) )
         assert len(elr) == 1, "Got more than one gene for ui="+ui
-        rv['gene_id'] = gene_id = elr[0]
+        gene_id = elr[0]
         g = Gene(efetch_gene_by_gene_id(gene_id))
-        rv['gene'] = g.locus()
-
-        rs_exons = rs.exons()
-        g_exons = g.grch37p5_product_exons(acv)
-        rs_exon_lengths = intervals_to_starts_ends_lengths(rs_exons)[2]
-        g_exon_lengths = intervals_to_starts_ends_lengths(g_exons)[2]
-
-        rv['n_rs_exons'] = len(rs_exon_lengths)
-        rv['n_g_exons'] = len(g_exon_lengths)
-        rv['ex_n_eq'] = len(rs_exon_lengths) == len(g_exon_lengths)
-        rv['ex_len_eq'] = rs_exon_lengths == g_exon_lengths
-
         m = g.grch37p5_mapping()
-        rv['loc'] = g.maploc() or rs.chr() or ''
-        rv['strand'] = m['strand']
+        g_exons = g.grch37p5_product_exons(acv)
+        t_exons = rs.exons()
+        g_exon_lengths = intervals_to_starts_ends_lengths(g_exons)[2]
+        t_exon_lengths = intervals_to_starts_ends_lengths(t_exons)[2]
 
+        rv['ui'] = ui
+        rv['gene_id'] = gene_id
+        rv['gene'] = g.locus()
+        rv['strand'] = m['strand']
+        rv['chr'] = rs.chr()
+        rv['loc'] = g.maploc() or rv['chr'] or ''
+        rv['mismatches'] = []
+        rv['cds'] = '-'.join([ str(p) for p in rs.cds_start_end()[:] ])
+        rv['comment'] = None;
+
+        # compare number of exons and lengths of exons
+        rv['n_g_exons'] = len(g_exon_lengths)
+        rv['n_t_exons'] = len(t_exon_lengths)
+        rv['ex_n_eq'] = rv['n_g_exons'] == rv['n_t_exons']
         if not rv['ex_n_eq']:
             rv['comment'] = 'different number of exons'
             return rv
+        rv['ex_len_eq'] = t_exon_lengths == g_exon_lengths
 
-        rs_seq = rs.seq()
+        t_seq = rs.seq()
         g_chr = rs.chr()
-        g_ex_dir = 1 if m['strand'] == 'plus' else -1
-
-        n_tot_snvs = 0
-        n_tot_ins = 0
-        n_tot_dels = 0
-        mismatches = []
-        g_ex_coords = []
-        rs_ex_coords = []
-        g_urls = []
-        rs_ex_cum_len = 0       # cumulative length from cds start
+        t_ex_cum_len = 0       # cumulative length from cds start
         cds_start,cds_end = rs.cds_start_end()
-        for exon_i in range(len(rs_exons)):
-            rs_ex_start = rs_exons[exon_i][0]
-            rs_ex_end = rs_exons[exon_i][1]
-            rs_ex_seq = rs_seq[rs_ex_start-1:rs_ex_end] # 0-based, half-open
-            g_ex_start = g_exons[exon_i][0]
-            g_ex_end = g_exons[exon_i][1]
-            g_ex_seq = fetch_genomic_sequence_interval(m['chr'],g_ex_start+1,g_ex_end+1)
-            if m['strand'] == 'minus':
-                g_ex_seq = reverse_complement(g_ex_seq)
-            ras,gas = align2b(rs_ex_seq,g_ex_seq)
-            assert len(ras)==len(gas), "global alignment should be same length"
-            snvs = [ i for i in range(len(ras)) if (gas[i]!='-' and ras[i]!='-' and gas[i]!=ras[i]) ]
-            dels = [ i for i in range(len(ras)) if (gas[i]!='-' and ras[i]=='-' ) ] # del wrt tx
-            ins  = [ i for i in range(len(ras)) if (gas[i]=='-' and ras[i]!='-' ) ] # ins wrt tx
-            if len(snvs)>0 or len(dels)>0 or len(ins)>0:
-                mismatches += ['%s:%s' % ( exon_i+1, 
-                                           ','.join(   [str(s+1)+'S' for s in snvs] 
-                                                     + [str(s+1)+'I' for s in ins ]
-                                                     + [str(s+1)+'D' for s in dels]
-                                                     ))]
-                g_ex_off = g_ex_start if m['strand'] == 'plus' else g_ex_end
-                g_pos = [ g_ex_off + i*g_ex_dir + 1 for i in snvs + ins + dels ]
-                g_ex_coords += [ 'chr%s:g.%s' % (m['chr'], gp) for gp in g_pos ]
-                g_urls += [ url_for_slice(m['chr'],gp-50,gp+50) for gp in g_pos ]
-                rs_ex_coords += [ '%s:c.%s' % (acv,cdot(cds_start,cds_end,rs_ex_cum_len,i))
-                                  for i in snvs + ins + dels ]
-                #if len(indels) > 0:
-                #    for k,v in [ 
-                #        ('ruler', ''.join([ '%9d|'%(i*10) for i in range(1,400)])),
-                #        ('g_ex_seq', g_ex_seq),
-                #        ('rs_ex_seq', rs_ex_seq),
-                #        ('gas', gas), 
-                #        ('ras', ras) ]:
-                #        print( '%16s: %s' % (k,v) )
 
-            n_tot_snvs += len(snvs)
-            n_tot_ins += len(ins)
-            n_tot_dels += len(dels)
-            rs_ex_cum_len += len(rs_ex_seq)
-        rv['n_tot_snvs'] = n_tot_snvs
-        rv['n_tot_ins'] = n_tot_ins
-        rv['n_tot_dels'] = n_tot_dels
-        rv['mismatches'] = mismatches
-        rv['g_ex_coords'] = g_ex_coords
-        rv['rs_ex_coords'] = rs_ex_coords
-        rv['g_urls'] = g_urls
-        rv['cds'] = '-'.join([ str(p) for p in rs.cds_start_end()[:] ])
-    except KeyError as e: #Exception as e:
+        for exon_i in range(len(t_exons)):
+            g_ex_start, g_ex_end = g_exons[exon_i]
+            g_ex_seq = fetch_genomic_sequence_interval(rv['chr'],g_ex_start+1,g_ex_end+1)
+
+            t_ex_start, t_ex_end = t_exons[exon_i]
+            t_ex_seq = t_seq[t_ex_start-1:t_ex_end] # 0-based, half-open
+            e_off, e_dir = 0, 1
+            if rv['strand'] == 'minus':
+                t_ex_seq = reverse_complement(t_ex_seq)
+                e_off, e_dir = len(t_ex_seq), -1
+
+            g_ex_aseq,t_ex_aseq = align2(g_ex_seq,t_ex_seq)
+            assert len(g_ex_aseq)==len(t_ex_aseq), "global alignment should be same length"
+            d = ''.join([ d if d is not None else ' ' 
+                          for d in [ _diff_type(g_ex_aseq[i],t_ex_aseq[i]) 
+                                     for i in range(len(g_ex_aseq)) ] ])
+            e_end = 0
+            for e_start in range(len(t_ex_aseq)):
+                # find contiguous right-open range of same diff type
+                # contiguous range as [start,end)
+                # almost all of these will be [i,i+1)
+
+                if e_start < e_end: # advance the loop past any ranged
+                    continue        # variants from a previous iteration
+
+                dt = _diff_type(g_ex_aseq[e_start],t_ex_aseq[e_start])
+                if dt is None:
+                    continue
+                for e_end in range(e_start,len(t_ex_aseq)):
+                    if dt != _diff_type(g_ex_aseq[e_end],t_ex_aseq[e_end]):
+                        break
+
+                g_start = g_ex_start + e_start
+                g_end   = g_ex_start + e_end
+                t_start = t_ex_cum_len + e_off + e_dir * e_start
+                t_end   = t_ex_cum_len + e_off + e_dir * e_end
+                if rv['strand'] == 'minus':
+                    t_start,t_end = t_end,t_start
+                c_start = cdot(cds_start,cds_end,t_start)
+                c_end   = cdot(cds_start,cds_end,t_end-1) # end is right-open
+                m = Mismatch(
+                    type = dt,
+                    ac = acv,
+                    strand = rv['strand'], chr = rv['chr'], 
+                    exon = exon_i + 1, e_start = e_start, e_end = e_end,
+                    g_start = g_start, g_end = g_end, g_aseq = g_ex_aseq[e_start:e_end],
+                    t_start = t_start, t_end = t_end, t_aseq = t_ex_aseq[e_start:e_end], # keep + stranded
+                    c_start = c_start, c_end = c_end,
+                    )
+                rv['mismatches'] += [m]
+                e_start = e_end
+            t_ex_cum_len += len(t_ex_seq)
+    except Exception as e:
         rv['comment'] = (''.join(traceback.format_exception(type(e),e.message,None))).rstrip()
         return rv
     return rv
 
-def cdot(cds_start,cds_end,rs_ex_cum_len,r):
-    c = r - (cds_start-1) + rs_ex_cum_len
+
+def cdot(cds_start,cds_end,r):
+    c = r - (cds_start-1)
     if c > cds_end:
         return '*' + str(r-(cds_end-1)+1)
     else:
@@ -277,27 +305,31 @@ def strand_sign(s):
     if s == 'minus': return '-'
     else: return ''
 
+def _diff_type(nt1,nt2):
+    if (nt1 == '-'): return 'I'
+    if (nt2 == '-'): return 'D'
+    if (nt1 != nt2): return 'S'
+    return None
+
+
 for acv in sys.argv[1:]:
     rv = process1(acv)
-#    if rv['ac_status'] == 'obs':
-#        print('\t'.join([acv,rv['ac_status'],'#'+rv['comment']]))
-#        continue
     rv['ss'] = strand_sign(rv['strand']) + rv['loc']
-    if rv['n_tot_snvs']!='' and rv['n_tot_ins']!='' and rv['n_tot_dels']!='':
-        rv['ex_mm'] = rv['n_tot_snvs']==0 and rv['n_tot_ins']==0 and rv['n_tot_dels']==0 
-    rv['mms'] = '%s/%s/%s (%s)' % ( rv['n_tot_snvs'], rv['n_tot_ins'], rv['n_tot_dels'], 
-                                    ';'.join(rv['mismatches']) )
-    if rv['comment']:
-        rv['comment'] = '#' + rv['comment']
-
+    rv['mms'] = '%sS/%sI/%sD' % (
+        len([ mm for mm in rv['mismatches'] if mm.type == 'S' ]),
+        len([ mm for mm in rv['mismatches'] if mm.type == 'I' ]),
+        len([ mm for mm in rv['mismatches'] if mm.type == 'D' ]),
+        )
+    if rv['comment']: rv['comment'] = '#' + rv['comment']
     print('*', '\t'.join( str(e) for e in [ 
                 acv, rv['ac_status'], rv['gene'],  rv['cds'], 
-                rv['ss'], rv['n_rs_exons'],
+                rv['ss'], rv['n_t_exons'],
                 rv['ex_n_eq'], rv['ex_len_eq'],  
-                rv['ex_mm'], 
-                rv['mms'], 
-                rv['comment'],
+                rv['mms'], rv['comment'],
                 ]))
-    for g,r,u in zip(rv['g_ex_coords'], rv['rs_ex_coords'], rv['g_urls']):
-        print( '\t', '\t'.join( [g,r,u] ) )
- 
+    for mm in rv['mismatches']:
+        print('\t'+'\t'.join([ str(e) 
+                               for e in [mm.chr,mm.g_start+1,mm.g_end,
+                                         mm.exon,mm.e_start,mm.e_end,
+                                         mm.type,mm.hgvs_range,
+                                         mm.g_aseq+'/'+mm.t_aseq, mm.seqviewer_url] ]))
