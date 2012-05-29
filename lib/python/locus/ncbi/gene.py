@@ -1,8 +1,10 @@
 import logging
 from lxml.etree import XML
+import IPython
 
 class Gene(object):
     def __init__(self,xml):
+        assert '<Entrezgene-Set>' in xml and '</Entrezgene-Set>' in xml, "invalid Gene XML"
         self._root = XML(xml)
 
     # TODO: rename hgnc or somesuch
