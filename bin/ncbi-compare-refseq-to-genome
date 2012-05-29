@@ -27,6 +27,7 @@ from locus.core.exceptions import LocusError
 from locus.utils.memoize_mongo import memoize
 from locus.ncbi.refseq import RefSeq
 from locus.ncbi.gene import Gene
+from locus.utils.genomeutils import chr_to_NC, strip_chr
 
 
 eutils_defaults = {
@@ -231,7 +232,7 @@ def process1(acv):
         rv['rs_ex_coords'] = rs_ex_coords
         rv['g_urls'] = g_urls
         rv['cds'] = '-'.join([ str(p) for p in rs.cds_start_end()[:] ])
-    except RuntimeError as e:
+    except KeyError as e: #Exception as e:
         rv['comment'] = (''.join(traceback.format_exception(type(e),e.message,None))).rstrip()
         return rv
     return rv
@@ -266,8 +267,8 @@ def url_for_slice(c,s,e):
         '33cccc&gflip=false&select='
         'gi|224589812-0390e571-039b5700-0103-dee8c202-ffea8d58'
         )
-
-    url = url_fmt.format(nc='NC_%06d'%int(c),  start=str(s), end=str(e))
+    nc = chr_to_NC[strip_chr(c)]
+    url = url_fmt.format(nc=nc,  start=str(s), end=str(e))
     res = bitly.shorten(longUrl=url)
     return res['url']
 
@@ -289,7 +290,7 @@ for acv in sys.argv[1:]:
     if rv['comment']:
         rv['comment'] = '#' + rv['comment']
 
-    print('* ', '\t'.join( str(e) for e in [ 
+    print('*', '\t'.join( str(e) for e in [ 
                 acv, rv['ac_status'], rv['gene'],  rv['cds'], 
                 rv['ss'], rv['n_rs_exons'],
                 rv['ex_n_eq'], rv['ex_len_eq'],  
@@ -298,5 +299,5 @@ for acv in sys.argv[1:]:
                 rv['comment'],
                 ]))
     for g,r,u in zip(rv['g_ex_coords'], rv['rs_ex_coords'], rv['g_urls']):
-        print( '\t'.join( [g,r,u] ) )
+        print( '\t', '\t'.join( [g,r,u] ) )
  
