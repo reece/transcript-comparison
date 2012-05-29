@@ -28,5 +28,8 @@ class RefSeq(object):
         return self._root.xpath('/GBSet/GBSeq/GBSeq_sequence')[0].text
 
 def _feature_se(gbf):
-    s,e = gbf.find('GBFeature_location').text.split('..')
+    loc = gbf.find('GBFeature_location').text
+    if 'join' in loc:
+        raise RuntimeError('discontiguous genbank feature')
+    s,e = loc.split('..')
     return int(s),int(e)
