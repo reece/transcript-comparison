@@ -314,16 +314,20 @@ for acv in sys.argv[1:]:
     try:
         rv = process1(acv)
         if rv['ac_status'] == 'obs':
-            
-        rv['ss'] = strand_sign(rv['strand']) + rv['loc']
-        rv['mms'] = '%sS/%sI/%sD' % (
-            len([ mm for mm in rv['mismatches'] if mm.type == 'S' ]),
-            len([ mm for mm in rv['mismatches'] if mm.type == 'I' ]),
-            len([ mm for mm in rv['mismatches'] if mm.type == 'D' ]),
-            )
+            rv['ss'] = rv['gene'] = rv['cds'] = ''
+            rv['n_t_exons'] = rv['ex_n_eq'] = rv['ex_len_eq'] = ''
+            rv['mms'] = ''
+        else:
+            rv['ss'] = strand_sign(rv['strand']) + rv['loc']
+            rv['mms'] = '%sS/%sI/%sD' % (
+                len([ mm for mm in rv['mismatches'] if mm.type == 'S' ]),
+                len([ mm for mm in rv['mismatches'] if mm.type == 'I' ]),
+                len([ mm for mm in rv['mismatches'] if mm.type == 'D' ]),
+                )
         if rv['comment']: 
             rv['comment'] = '#' + rv['comment']
-        print('*', '\t'.join( str(e) for e in [ 
+        print('*', '\t'.join( str(e) if e else ''
+                              for e in [ 
                     acv, rv['ac_status'], rv['gene'],  rv['cds'], 
                     rv['ss'], rv['n_t_exons'],
                     rv['ex_n_eq'], rv['ex_len_eq'],  
