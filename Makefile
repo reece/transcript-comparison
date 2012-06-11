@@ -3,11 +3,10 @@
 .DELETE_ON_ERROR:
 SHELL:=/bin/bash
 
-N:=100
-
 VIRTUALENV_DIR:=ve
 export PYTHONUNBUFFERED:=1
 export PYTHONPATH:=${HOME}/projects/locus-python/lib
+COND_XML_DIR:=/locus/data/conditions/2.1.0/MiseqMay2012/conditionxml/
 
 setup: ${VIRTUALENV_DIR} install-reqs
 
@@ -21,8 +20,17 @@ human.rna.fna.gz:
 	curl ftp://ftp.ncbi.nlm.nih.gov/refseq/H_sapiens/mRNA_Prot/human.rna.fna.gz >'$@.tmp' \
 	&& mv -fv '$@.tmp' '$@'
 
-all: human.rna.fna.gz
+refseq_rna: human.rna.fna.gz
 	gzip -cd <$< | perl -lne 'print $$& if m/NM_\d+\.\d+/' | sort >$@
+
+curated:
+	extract-condition-transcripts ${COND_XML_DIR}/Condition_*xml \
+	| cut -f3 \
+	| sort -u >$@
+
+all: refseq_rna curated
+	sort -u $^ >$@
+
 
 %.dup: %
 	unset LANG LC_COLLATE; join <(tail -n+2 $< | cut -f1 | sort -t\t | uniq -d) <(tail -n+2 $< | sort -t\t) >$@
@@ -38,18 +46,24 @@ all: human.rna.fna.gz
 %.cmp: %
 	xargs <$< ./bin/ncbi-compare-refseq-to-genome >$@ 2>$@.log
 
-#ALLCMP=$(foreach i,$(shell seq 1 $N),all.d/$i-$N.cmp)
-ALLCMP=$(shell perl -le 'printf("all.d/%03d-$N.cmp ",$$_) for 1..$N')
-all.d/%-${N}: all
-	@mkdir -p ${@D}
-	fpart -N ${N} -n $* <$< >$@
-all.cmp: ${ALLCMP}
-	sort $^ -o $@
 
+refagree.tsv: all.cmp
+	@(perl -le 'print join("\t", qw(chr g_start g_end exon e_start e_end type hgvsc_range alleles seqviewer_url))'; \
+	perl -ne 'print if s/^\t//' $< | sort -k1n -k2n -k3n) >$@
 
 transcripts.tsv: all.cmp
 	./bin/post-proc <$< ens >$@
 
+
+
+#N:=1000
+##ALLCMP=$(foreach i,$(shell seq 1 $N),all.d/$i-$N.cmp)
+#ALLCMP=$(shell perl -le 'printf("all.d/%04d-$N.cmp ",$$_) for 1..$N')
+#all.d/%-${N}: all
+#	@mkdir -p ${@D}
+#	fpart -N ${N} -n $* <$< >$@
+#all.cmp: ${ALLCMP}
+#	cat $^ >$@
 
 
 # Q: How many ensembl CDSs are represented in RefSeq?
