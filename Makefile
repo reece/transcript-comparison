@@ -37,19 +37,28 @@ all: refseq_rna curated
 
 %.d: %
 	mkdir $@
-	split -l 100 $< $@/
+	split -l 15 $< $@/
 
 %.d/log: %.d
 	make -j4 $(addsuffix .cmp,$(wildcard $</??))
 
-.SECONDARY: %.cmp
 %.cmp: %
-	xargs <$< ./bin/ncbi-compare-refseq-to-genome >$@ 2>$@.log
+	xargs <$< ./bin/ncbi-compare-refseq-to-genome >$@.tmp 2>$@.log && mv $@.tmp $@
 
-
-refagree.tsv: all.cmp
+%.tsv: %.cmp
 	@(perl -le 'print join("\t", qw(chr g_start g_end exon e_start e_end type hgvsc_range alleles seqviewer_url))'; \
 	perl -ne 'print if s/^\t//' $< | sort -k1n -k2n -k3n) >$@
+
+%-diffex: %.cmp
+	perl -lne 'print $$1 if m/^\* (NM_\S+).+#different/' <$< | sort -u >$@
+
+%-obs: %.cmp.log
+	perl -lne 'print $$1 if m/(NM_\S+) is obsolete/' <$< | sort -u >$@
+
+%-missed: %-diffex %-obs
+	sort -u $^ >$@
+
+
 
 transcripts.tsv: all.cmp
 	./bin/post-proc <$< ens >$@
