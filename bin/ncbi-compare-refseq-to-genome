@@ -187,6 +187,8 @@ def process1(acv):
         t_exons = rs.exons()
         g_exon_lengths = intervals_to_starts_ends_lengths(g_exons)[2]
         t_exon_lengths = intervals_to_starts_ends_lengths(t_exons)[2]
+        print( ','.join([str(e) for e in g_exon_lengths]) )
+        print( ','.join([str(e) for e in t_exon_lengths]) )
 
         rv['ui'] = ui
         rv['gene_id'] = gene_id
